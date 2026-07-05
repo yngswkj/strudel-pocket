@@ -2611,7 +2611,8 @@ function patchVisuals() {
   // pianoroll: ctxの差し替えだけでよい(描画は本体の共通ループが回す)
   const origRoll = P.pianoroll;
   P.pianoroll = function (opts = {}) {
-    return origRoll.call(this, { ...themedVisualOptions(opts), ctx: allocVisualCanvas() });
+    const ctx = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
+    return origRoll.call(this, { ...themedVisualOptions(opts), ctx });
   };
   // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
   // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
