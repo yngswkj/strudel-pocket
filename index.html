@@ -79,12 +79,12 @@
   }
   .hbtn:active:not(:disabled){background:var(--line)}
   .hbtn:disabled{opacity:.35}
-  #openDrawer{width:40px;padding:0;font-size:17px;line-height:1}
 
   /* ヘッダー内の横スクロールボタン群(↶↷が見え、スクロールするとA−/A＋が現れる) */
   #hscroll{
     display:flex;gap:6px;flex:0 0 auto;width:82px;overflow-x:auto;
     scrollbar-width:none;scroll-snap-type:x mandatory;
+    margin-left:auto; /* ロゴ以外のボタン群を右寄せする */
   }
   #hscroll::-webkit-scrollbar{display:none}
   #hscroll .hbtn{
@@ -103,7 +103,7 @@
     header{gap:6px;padding-left:8px;padding-right:8px}
     .brand{font-size:13px}
     #hscroll{width:70px}
-    #openDrawer{width:36px;font-size:16px}
+    #openDrawer{padding:0 8px;font-size:11px}
   }
 
   /* ── エディタ ─────────────────────── */
@@ -306,6 +306,11 @@
   .soundResult:active{background:var(--line)}
   .soundResult small{color:var(--muted);font-size:10px;margin-left:4px}
   .soundResultsInfo{width:100%;font-size:11px;color:var(--muted);padding:0 2px}
+  .soundMore{
+    width:100%;height:42px;border-radius:10px;font-size:13px;font-weight:700;
+    background:var(--surface2);border:1px solid var(--line);color:var(--cool);
+  }
+  .soundMore:active{background:var(--line)}
   #soundHint{margin:0 0 8px}
   /* 長押しドラッグ中に指へ追従するチップと挿入位置カーソル */
   .dragGhost{
@@ -437,8 +442,8 @@
     <button class="hbtn compact" id="fontMinus" aria-label="文字を小さく">A−</button>
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
   </div>
+  <button class="hbtn" id="openDrawer">設定</button>
   <button id="playBtn" aria-label="再生">▶</button>
-  <button class="hbtn" id="openDrawer" aria-label="設定">⚙︎</button>
 </header>
 
 <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
@@ -812,6 +817,7 @@ const SOUND_FILTERS = [
 ];
 const SOUND_RESULT_LIMIT = 60;
 let soundFilter = SOUND_FILTERS[0].id;
+let soundShownLimit = SOUND_RESULT_LIMIT; // 「さらに読み込む」で60件ずつ増える
 
 function listSounds() {
   if (typeof strudel === "undefined" || !strudel.soundMap) return null;
@@ -1037,6 +1043,7 @@ function renderSoundFilters() {
     b.dataset.filter = f.id;
     bindTap(b, () => {
       soundFilter = f.id;
+      soundShownLimit = SOUND_RESULT_LIMIT; // 条件が変わったら表示数をリセット
       renderSoundResults();
     });
     soundFiltersEl.appendChild(b);
@@ -1060,7 +1067,7 @@ function renderSoundResults() {
   const filter = SOUND_FILTERS.find(f => f.id === soundFilter) || SOUND_FILTERS[0];
   const hits = all.filter(o => filter.match(o) && (!q || o.name.toLowerCase().includes(q)));
   if (!hits.length) { info("「" + q + "」に一致する音色はありません"); return; }
-  hits.slice(0, SOUND_RESULT_LIMIT).forEach(o => {
+  hits.slice(0, soundShownLimit).forEach(o => {
     const b = document.createElement("button");
     b.className = "soundResult";
     b.textContent = o.name;
@@ -1072,12 +1079,25 @@ function renderSoundResults() {
     bindSoundChip(b, o.name);
     soundResultsEl.appendChild(b);
   });
-  info(hits.length > SOUND_RESULT_LIMIT
-    ? hits.length + "件中" + SOUND_RESULT_LIMIT + "件を表示(検索で絞り込めます)"
-    : hits.length + "件");
+  if (hits.length > soundShownLimit) {
+    info(hits.length + "件中" + soundShownLimit + "件を表示");
+    const more = document.createElement("button");
+    more.className = "soundMore";
+    more.textContent = "さらに読み込む(残り" + (hits.length - soundShownLimit) + "件)";
+    bindTap(more, () => {
+      soundShownLimit += SOUND_RESULT_LIMIT;
+      renderSoundResults();
+    });
+    soundResultsEl.appendChild(more);
+  } else {
+    info(hits.length + "件");
+  }
 }
 renderSoundFilters();
-soundSearchInput.addEventListener("input", renderSoundResults);
+soundSearchInput.addEventListener("input", () => {
+  soundShownLimit = SOUND_RESULT_LIMIT; // 検索語が変わったら表示数をリセット
+  renderSoundResults();
+});
 
 function formatBytes(n) {
   if (!(n > 0)) return "";
