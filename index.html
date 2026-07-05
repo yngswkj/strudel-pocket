@@ -256,6 +256,24 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  #snapSlots{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;margin:0 2px 18px;
+  }
+  .snapSlot{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
+    background:var(--surface2);border:1px solid var(--line);border-radius:10px;
+    padding:8px;min-width:0;
+  }
+  .snapMeta{min-width:0}
+  .snapName{font-family:var(--mono);font-size:13px;font-weight:700}
+  .snapInfo{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .snapSave,.snapLoad{
+    height:32px;border-radius:8px;padding:0 8px;font-size:12px;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+  }
+  .snapSave{color:var(--cool)}
+  .snapLoad:disabled{opacity:.35}
   .card{
     background:var(--surface2);border:1px solid var(--line);border-radius:14px;
     padding:12px;margin-bottom:10px;
@@ -330,6 +348,8 @@
       <button class="themeBtn" data-theme="greenText">greenText</button>
       <button class="themeBtn" data-theme="archBtw">archBtw</button>
     </div>
+    <h2>スナップ</h2>
+    <div id="snapSlots"></div>
     <h2>パターン集</h2>
     <div id="cards"></div>
     <button class="danger" id="clearBtn">エディタを空にする</button>
@@ -377,6 +397,7 @@ const SAVE_KEY = "strudel-pocket-code";
 const FONT_KEY = "strudel-pocket-font";
 const THEME_KEY = "strudel-pocket-theme";
 const MODE_KEY = "strudel-pocket-chip-mode";
+const SNAP_KEY = "strudel-pocket-snaps";
 
 /* ─────────────────────────────────────
    プリセット
@@ -544,6 +565,61 @@ KEYS.forEach(([text, label, caret]) => {
   bindInsert(b, text, caret);
   keysEl.appendChild(b);
 });
+
+const SNAP_IDS = ["A", "B", "C", "D"];
+const snapSlotsEl = document.getElementById("snapSlots");
+let snaps = {};
+if (store) {
+  try { snaps = JSON.parse(store.getItem(SNAP_KEY) || "{}") || {}; } catch (e) { snaps = {}; }
+}
+
+function snapInfo(snap) {
+  if (!snap || !snap.code) return "空";
+  const lines = snap.code.split(/\n/).length;
+  return lines + "行";
+}
+
+function persistSnaps() {
+  if (!store) return;
+  try { store.setItem(SNAP_KEY, JSON.stringify(snaps)); } catch (e) {}
+}
+
+function renderSnaps() {
+  snapSlotsEl.textContent = "";
+  SNAP_IDS.forEach(id => {
+    const slot = document.createElement("div");
+    slot.className = "snapSlot";
+    slot.innerHTML = '<div class="snapMeta"><div class="snapName"></div><div class="snapInfo"></div></div>' +
+      '<button class="snapSave">保存</button><button class="snapLoad">読込</button>';
+    slot.querySelector(".snapName").textContent = id;
+    slot.querySelector(".snapInfo").textContent = snapInfo(snaps[id]);
+    const loadBtn = slot.querySelector(".snapLoad");
+    loadBtn.disabled = !(snaps[id] && snaps[id].code);
+    slot.querySelector(".snapSave").addEventListener("click", () => saveSnap(id));
+    loadBtn.addEventListener("click", () => loadSnap(id));
+    snapSlotsEl.appendChild(slot);
+  });
+}
+
+function saveSnap(id) {
+  if (!ed.value.trim()) { setStatus(id + "は空のため保存なし", "ready"); return; }
+  snaps[id] = { code: ed.value, at: Date.now() };
+  persistSnaps();
+  renderSnaps();
+  setStatus(id + "に保存", playing ? "playing" : "ready");
+}
+
+function loadSnap(id) {
+  const snap = snaps[id];
+  if (!snap || !snap.code) { setStatus(id + "は空", playing ? "playing" : "ready"); return; }
+  ed.value = snap.code;
+  afterEdit();
+  updateScrubber();
+  closeDrawer();
+  ed.focus();
+  setStatus(id + "を読み込み", playing ? "playing" : "ready");
+}
+renderSnaps();
 
 const cardsEl = document.getElementById("cards");
 PRESETS.forEach(p => {
