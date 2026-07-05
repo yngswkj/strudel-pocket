@@ -261,6 +261,22 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  #soundProfiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 2px 8px}
+  .soundProfileBtn{
+    min-height:56px;border-radius:10px;padding:9px 10px;text-align:left;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  .soundProfileBtn.active{border-color:var(--cool);box-shadow:inset 0 0 0 1px rgba(63,214,192,.35)}
+  .soundProfileName{font-size:13px;font-weight:700}
+  .soundProfileDesc{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35}
+  #soundStatus{font-size:12px;color:var(--muted);margin:0 4px 12px}
+  #soundPalette{display:flex;gap:6px;overflow-x:auto;margin:0 2px 18px;scrollbar-width:none}
+  #soundPalette::-webkit-scrollbar{display:none}
+  .soundChip{
+    flex:0 0 auto;border-radius:999px;padding:9px 12px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:12px;
+  }
   #snapSlots{
     display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;margin:0 2px 18px;
@@ -353,6 +369,10 @@
       <button class="themeBtn" data-theme="greenText">greenText</button>
       <button class="themeBtn" data-theme="archBtw">archBtw</button>
     </div>
+    <h2>サウンド</h2>
+    <div id="soundProfiles"></div>
+    <div id="soundStatus">軽量サウンド</div>
+    <div id="soundPalette"></div>
     <h2>スナップ</h2>
     <div id="snapSlots"></div>
     <h2>パターン集</h2>
@@ -403,6 +423,7 @@ const FONT_KEY = "strudel-pocket-font";
 const THEME_KEY = "strudel-pocket-theme";
 const MODE_KEY = "strudel-pocket-chip-mode";
 const SNAP_KEY = "strudel-pocket-snaps";
+const SOUND_PROFILE_KEY = "strudel-pocket-sound-profile";
 
 /* ─────────────────────────────────────
    プリセット
@@ -517,6 +538,44 @@ const KEYS = [
   ['()', '( )', 1],
 ];
 
+const STRUDEL_CDN = "https://strudel.b-cdn.net";
+const SOUND_PROFILES = [
+  {
+    id: "lite",
+    name: "軽量",
+    desc: "Dirt基本セット",
+    loadText: "軽量サウンド",
+    maps: [
+      { kind: "samples", args: ["github:tidalcycles/dirt-samples"] }
+    ]
+  },
+  {
+    id: "repl",
+    name: "本家相当",
+    desc: "追加マップを登録",
+    loadText: "本家相当サウンド",
+    maps: [
+      { kind: "registerZZFXSounds", args: [] },
+      { kind: "samples", args: ["github:tidalcycles/dirt-samples"] },
+      { kind: "samples", args: [`${STRUDEL_CDN}/piano.json`, `${STRUDEL_CDN}/piano/`, { prebake: true }] },
+      { kind: "samples", args: [`${STRUDEL_CDN}/vcsl.json`, `${STRUDEL_CDN}/VCSL/`, { prebake: true }] },
+      { kind: "samples", args: [`${STRUDEL_CDN}/tidal-drum-machines.json`, `${STRUDEL_CDN}/tidal-drum-machines/machines/`, { prebake: true, tag: "drum-machines" }] },
+      { kind: "samples", args: [`${STRUDEL_CDN}/uzu-drumkit.json`, `${STRUDEL_CDN}/uzu-drumkit/`, { prebake: true, tag: "drum-machines" }] },
+      { kind: "samples", args: [`${STRUDEL_CDN}/uzu-wavetables.json`, `${STRUDEL_CDN}/uzu-wavetables/`, { prebake: true }] },
+      { kind: "samples", args: [`${STRUDEL_CDN}/mridangam.json`, `${STRUDEL_CDN}/mrid/`, { prebake: true, tag: "drum-machines" }] },
+      { kind: "aliasBank", args: [`${STRUDEL_CDN}/tidal-drum-machines-alias.json`] }
+    ]
+  }
+];
+const SOUND_CHIPS = [
+  ['s("bd sd hh")',              'bd/sd/hh',     null],
+  ['s("bd*4").bank("AkaiLinn")', 'Akai bd',      null],
+  ['s("hh*8").bank("RolandTR808")', '808 hat',   null],
+  ['note("c4 e4 g4").piano()',   'piano()',      null],
+  ['s("mridangam_ta")',          'mridangam',    null],
+  ['s("wt_digital").note("c3")', 'wt digital',   null],
+];
+
 /* ─────────────────────────────────────
    UI生成
 ───────────────────────────────────── */
@@ -561,6 +620,86 @@ function renderChips() {
 }
 renderChipModes();
 renderChips();
+
+const soundProfilesEl = document.getElementById("soundProfiles");
+const soundStatusEl = document.getElementById("soundStatus");
+const soundPaletteEl = document.getElementById("soundPalette");
+let soundProfile = SOUND_PROFILES[0].id;
+if (store) {
+  const savedSoundProfile = store.getItem(SOUND_PROFILE_KEY);
+  if (SOUND_PROFILES.some(p => p.id === savedSoundProfile)) soundProfile = savedSoundProfile;
+}
+const loadedSoundProfiles = {};
+
+function renderSoundProfiles() {
+  soundProfilesEl.textContent = "";
+  SOUND_PROFILES.forEach(profile => {
+    const b = document.createElement("button");
+    b.className = "soundProfileBtn";
+    b.dataset.profile = profile.id;
+    b.innerHTML = '<div class="soundProfileName"></div><div class="soundProfileDesc"></div>';
+    b.querySelector(".soundProfileName").textContent = profile.name;
+    b.querySelector(".soundProfileDesc").textContent = profile.desc;
+    bindTap(b, () => setSoundProfile(profile.id));
+    soundProfilesEl.appendChild(b);
+  });
+  renderSoundStatus();
+}
+
+function renderSoundPalette() {
+  soundPaletteEl.textContent = "";
+  SOUND_CHIPS.forEach(([text, label, caret]) => {
+    const b = document.createElement("button");
+    b.className = "soundChip";
+    b.textContent = label;
+    bindInsert(b, text, caret);
+    soundPaletteEl.appendChild(b);
+  });
+}
+
+function renderSoundStatus(text) {
+  soundProfilesEl.querySelectorAll(".soundProfileBtn").forEach(b => {
+    b.classList.toggle("active", b.dataset.profile === soundProfile);
+  });
+  const profile = SOUND_PROFILES.find(p => p.id === soundProfile) || SOUND_PROFILES[0];
+  soundStatusEl.textContent = text || (loadedSoundProfiles[soundProfile] ? profile.loadText + " 読込済み" : profile.loadText);
+}
+
+async function setSoundProfile(profileId) {
+  const profile = SOUND_PROFILES.find(p => p.id === profileId);
+  if (!profile) return;
+  soundProfile = profile.id;
+  if (store) { try { store.setItem(SOUND_PROFILE_KEY, soundProfile); } catch (e) {} }
+  renderSoundStatus(profile.loadText + " 読込中...");
+  try {
+    await loadSoundProfile(soundProfile);
+    renderSoundStatus(profile.loadText + " 読込済み");
+    setStatus(profile.loadText + " 読込済み", playing ? "playing" : "ready");
+  } catch (e) {
+    renderSoundStatus(profile.loadText + " 読込失敗");
+    setStatus("サウンド読込失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+async function loadSoundProfile(profileId, opts = {}) {
+  const profile = SOUND_PROFILES.find(p => p.id === profileId) || SOUND_PROFILES[0];
+  if (loadedSoundProfiles[profile.id]) return;
+  for (const entry of profile.maps) {
+    if (entry.kind === "samples") {
+      if (typeof samples !== "function") throw new Error("samples()が見つかりません");
+      await samples(...entry.args);
+    } else if (entry.kind === "aliasBank") {
+      if (typeof aliasBank === "function") await aliasBank(...entry.args);
+    } else if (entry.kind === "registerZZFXSounds") {
+      if (typeof registerZZFXSounds === "function") await registerZZFXSounds();
+    }
+  }
+  loadedSoundProfiles[profile.id] = true;
+  if (!opts.boot) renderSoundStatus();
+}
+renderSoundProfiles();
+renderSoundPalette();
 
 const keysEl = document.getElementById("keys");
 KEYS.forEach(([text, label, caret]) => {
@@ -901,8 +1040,12 @@ libScript.addEventListener("error", () => {
 window.addEventListener("load", () => {
   if (typeof initStrudel === "function") {
     try {
-      initStrudel({
-        prebake: () => samples("github:tidalcycles/dirt-samples")
+      const initPromise = initStrudel({
+        prebake: () => loadSoundProfile(soundProfile, { boot: true })
+      });
+      Promise.resolve(initPromise).then(() => renderSoundStatus()).catch(e => {
+        setStatus("初期化エラー", "error");
+        showError(String(e && e.message ? e.message : e));
       });
       patchVisuals();
       strudelReady = true;
