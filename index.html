@@ -244,16 +244,36 @@
   }
   #drawer.show{display:block}
   #sheet{
-    position:absolute;left:0;right:0;bottom:0;max-height:82%;
+    position:absolute;left:0;right:0;bottom:0;height:min(82%,760px);
+    display:flex;flex-direction:column;
     background:var(--surface);border-radius:18px 18px 0 0;
     border-top:1px solid var(--line);
+    overflow:hidden;
+  }
+  /* シート上部(つまみ+タブ)は固定。つまみ部分の下スワイプで閉じられる */
+  #sheetHead{
+    flex:0 0 auto;padding:8px 14px 10px;border-bottom:1px solid var(--line);
+    touch-action:none;
+  }
+  #sheetGrip{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
+  #sheetTabs{display:flex;gap:6px;align-items:center}
+  .sheetTab{
+    flex:1;height:38px;border-radius:9px;font-size:12px;font-weight:700;min-width:0;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+    white-space:nowrap;
+  }
+  .sheetTab.active{background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool)}
+  .sheetTab:active{background:var(--line)}
+  #closeDrawer{
+    width:38px;height:38px;border-radius:9px;flex:0 0 auto;
+    background:var(--surface2);border:1px solid var(--line);color:var(--muted);font-size:14px;
+  }
+  #sheetBody{
+    flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
     padding:14px 14px calc(20px + env(safe-area-inset-bottom));
-    overflow-y:auto;
   }
-  #sheet::before{ /* シートのつまみ(下から出るUIだと分かる視覚手がかり) */
-    content:"";display:block;width:36px;height:4px;border-radius:2px;
-    background:var(--line);margin:0 auto 12px;
-  }
+  .dsec{display:none}
+  .dsec.show{display:block}
   #sheet h2{font-size:15px;margin:2px 4px 12px;font-weight:700}
   #themes{display:flex;gap:8px;margin:0 2px 18px}
   .themeBtn{
@@ -261,15 +281,31 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
-  #soundProfiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 2px 8px}
-  .soundProfileBtn{
-    min-height:56px;border-radius:10px;padding:9px 10px;text-align:left;
+  #soundStatus{font-size:12px;color:var(--muted);margin:0 4px 10px}
+  /* サウンド検索(スマホ前提: 大きめのタップ領域と横スクロールのフィルタ) */
+  #soundSearch{
+    width:100%;height:44px;border-radius:10px;padding:0 12px;margin:0 0 8px;
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font:14px var(--mono);
   }
-  .soundProfileBtn.active{border-color:var(--cool);box-shadow:inset 0 0 0 1px rgba(63,214,192,.35)}
-  .soundProfileName{font-size:13px;font-weight:700}
-  .soundProfileDesc{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35}
-  #soundStatus{font-size:12px;color:var(--muted);margin:0 4px 12px}
+  #soundSearch::placeholder{color:var(--muted)}
+  #soundFilters{display:flex;gap:6px;margin:0 0 10px;overflow-x:auto;scrollbar-width:none}
+  #soundFilters::-webkit-scrollbar{display:none}
+  .soundFilterBtn{
+    flex:0 0 auto;height:34px;border-radius:999px;padding:0 14px;font-size:12px;font-weight:700;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+  }
+  .soundFilterBtn.active{background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool)}
+  #soundResults{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px}
+  .soundResult{
+    flex:0 0 auto;max-width:100%;border-radius:9px;padding:9px 11px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:12px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .soundResult:active{background:var(--line)}
+  .soundResult small{color:var(--muted);font-size:10px;margin-left:4px}
+  .soundResultsInfo{width:100%;font-size:11px;color:var(--muted);padding:0 2px}
   #soundPalette{display:flex;gap:6px;overflow-x:auto;margin:0 2px 18px;scrollbar-width:none}
   #soundPalette::-webkit-scrollbar{display:none}
   .soundChip{
@@ -281,7 +317,7 @@
     display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
     margin:0 2px 18px;
   }
-  #sampleCacheStatus{min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sampleCacheStatus{min-width:0;font-size:12px;color:var(--muted);line-height:1.4}
   #sampleCacheRefresh,#sampleCacheClear{
     height:32px;border-radius:8px;padding:0 8px;font-size:12px;
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
@@ -367,6 +403,13 @@
     width:100%;height:42px;border-radius:10px;font-size:13px;margin-top:4px;
     background:transparent;border:1px solid rgba(255,84,112,.5);color:var(--warn);
   }
+  /* 小型スマホではスナップを1列に落として押しやすくする */
+  @media (max-width:360px){
+    #snapSlots{grid-template-columns:1fr}
+    .sheetTab{font-size:11px}
+    #sheetHead{padding-left:10px;padding-right:10px}
+    #sheetBody{padding-left:10px;padding-right:10px}
+  }
 </style>
 </head>
 <body>
@@ -411,41 +454,63 @@
 
 <div id="drawer">
   <div id="sheet">
-    <h2>テーマ</h2>
-    <div id="themes">
-      <button class="themeBtn active" data-theme="">Pocket</button>
-      <button class="themeBtn" data-theme="greenText">greenText</button>
-      <button class="themeBtn" data-theme="archBtw">archBtw</button>
-    </div>
-    <h2>サウンド</h2>
-    <div id="soundProfiles"></div>
-    <div id="soundStatus">軽量サウンド</div>
-    <div id="soundPalette"></div>
-    <div id="sampleCacheControls">
-      <div id="sampleCacheStatus">サンプルキャッシュ未確認</div>
-      <button id="sampleCacheRefresh">確認</button>
-      <button id="sampleCacheClear">削除</button>
-    </div>
-    <h2>スナップ</h2>
-    <div id="snapSlots"></div>
-    <h2>曲</h2>
-    <div id="songPanel">
-      <input id="songTitle" type="text" maxlength="60" placeholder="曲名">
-      <div id="songButtons">
-        <button id="songSave">保存</button>
-        <button id="songSaveAs">別名保存</button>
+    <div id="sheetHead">
+      <div id="sheetGrip"></div>
+      <div id="sheetTabs">
+        <button class="sheetTab" data-sec="patterns">パターン</button>
+        <button class="sheetTab" data-sec="songs">曲</button>
+        <button class="sheetTab" data-sec="sound">サウンド</button>
+        <button class="sheetTab" data-sec="theme">テーマ</button>
+        <button id="closeDrawer" aria-label="閉じる">✕</button>
       </div>
-      <div id="songUtilityButtons">
-        <button id="songExport">書出</button>
-        <button id="songImport">読込</button>
-        <button id="songShare">リンク</button>
-      </div>
-      <input id="songImportFile" type="file" accept="application/json,.json">
-      <div id="songList"></div>
     </div>
-    <h2>パターン集</h2>
-    <div id="cards"></div>
-    <button class="danger" id="clearBtn">エディタを空にする</button>
+    <div id="sheetBody">
+      <section class="dsec" data-sec="patterns">
+        <div id="cards"></div>
+        <button class="danger" id="clearBtn">エディタを空にする</button>
+      </section>
+      <section class="dsec" data-sec="songs">
+        <h2>スナップ</h2>
+        <div id="snapSlots"></div>
+        <h2>曲</h2>
+        <div id="songPanel">
+          <input id="songTitle" type="text" maxlength="60" placeholder="曲名">
+          <div id="songButtons">
+            <button id="songSave">保存</button>
+            <button id="songSaveAs">別名保存</button>
+          </div>
+          <div id="songUtilityButtons">
+            <button id="songExport">書出</button>
+            <button id="songImport">読込</button>
+            <button id="songShare">リンク</button>
+          </div>
+          <input id="songImportFile" type="file" accept="application/json,.json">
+          <div id="songList"></div>
+        </div>
+      </section>
+      <section class="dsec" data-sec="sound">
+        <div id="soundStatus">サウンド読込中…</div>
+        <input id="soundSearch" type="search" placeholder="音色を検索 (例: bd / 808 / piano)"
+          autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" lang="en">
+        <div id="soundFilters"></div>
+        <div id="soundResults"></div>
+        <h2>クイック挿入</h2>
+        <div id="soundPalette"></div>
+        <h2>オフラインキャッシュ</h2>
+        <div id="sampleCacheControls">
+          <div id="sampleCacheStatus">サンプルキャッシュ未確認</div>
+          <button id="sampleCacheRefresh">確認</button>
+          <button id="sampleCacheClear">削除</button>
+        </div>
+      </section>
+      <section class="dsec" data-sec="theme">
+        <div id="themes">
+          <button class="themeBtn active" data-theme="">Pocket</button>
+          <button class="themeBtn" data-theme="greenText">greenText</button>
+          <button class="themeBtn" data-theme="archBtw">archBtw</button>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -490,8 +555,8 @@ const SAVE_KEY = "strudel-pocket-code";
 const FONT_KEY = "strudel-pocket-font";
 const THEME_KEY = "strudel-pocket-theme";
 const MODE_KEY = "strudel-pocket-chip-mode";
+const DRAWER_TAB_KEY = "strudel-pocket-drawer-tab";
 const SNAP_KEY = "strudel-pocket-snaps";
-const SOUND_PROFILE_KEY = "strudel-pocket-sound-profile";
 const CURRENT_SONG_KEY = "strudel-pocket-current-song";
 const DB_NAME = "strudel-pocket-db";
 const DB_VERSION = 1;
@@ -612,33 +677,17 @@ const KEYS = [
 ];
 
 const STRUDEL_CDN = "https://strudel.b-cdn.net";
-const SOUND_PROFILES = [
-  {
-    id: "lite",
-    name: "軽量",
-    desc: "Dirt基本セット",
-    loadText: "軽量サウンド",
-    maps: [
-      { kind: "samples", args: ["github:tidalcycles/dirt-samples"] }
-    ]
-  },
-  {
-    id: "repl",
-    name: "本家相当",
-    desc: "追加マップを登録",
-    loadText: "本家相当サウンド",
-    maps: [
-      { kind: "registerZZFXSounds", args: [] },
-      { kind: "samples", args: ["github:tidalcycles/dirt-samples"] },
-      { kind: "samples", args: [`${STRUDEL_CDN}/piano.json`, `${STRUDEL_CDN}/piano/`, { prebake: true }] },
-      { kind: "samples", args: [`${STRUDEL_CDN}/vcsl.json`, `${STRUDEL_CDN}/VCSL/`, { prebake: true }] },
-      { kind: "samples", args: [`${STRUDEL_CDN}/tidal-drum-machines.json`, `${STRUDEL_CDN}/tidal-drum-machines/machines/`, { prebake: true, tag: "drum-machines" }] },
-      { kind: "samples", args: [`${STRUDEL_CDN}/uzu-drumkit.json`, `${STRUDEL_CDN}/uzu-drumkit/`, { prebake: true, tag: "drum-machines" }] },
-      { kind: "samples", args: [`${STRUDEL_CDN}/uzu-wavetables.json`, `${STRUDEL_CDN}/uzu-wavetables/`, { prebake: true }] },
-      { kind: "samples", args: [`${STRUDEL_CDN}/mridangam.json`, `${STRUDEL_CDN}/mrid/`, { prebake: true, tag: "drum-machines" }] },
-      { kind: "aliasBank", args: [`${STRUDEL_CDN}/tidal-drum-machines-alias.json`] }
-    ]
-  }
+/* 本家(strudel.cc)相当のサウンドマップ。目次(JSON)の登録だけで、音声本体は初回使用時に取得される */
+const SOUND_MAPS = [
+  { kind: "registerZZFXSounds", args: [] },
+  { kind: "samples", args: ["github:tidalcycles/dirt-samples"] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/piano.json`, `${STRUDEL_CDN}/piano/`, { prebake: true }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/vcsl.json`, `${STRUDEL_CDN}/VCSL/`, { prebake: true }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/tidal-drum-machines.json`, `${STRUDEL_CDN}/tidal-drum-machines/machines/`, { prebake: true, tag: "drum-machines" }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/uzu-drumkit.json`, `${STRUDEL_CDN}/uzu-drumkit/`, { prebake: true, tag: "drum-machines" }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/uzu-wavetables.json`, `${STRUDEL_CDN}/uzu-wavetables/`, { prebake: true }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/mridangam.json`, `${STRUDEL_CDN}/mrid/`, { prebake: true, tag: "drum-machines" }] },
+  { kind: "aliasBank", args: [`${STRUDEL_CDN}/tidal-drum-machines-alias.json`] }
 ];
 const SOUND_CHIPS = [
   ['s("bd sd hh")',              'bd/sd/hh',     null],
@@ -694,32 +743,29 @@ function renderChips() {
 renderChipModes();
 renderChips();
 
-const soundProfilesEl = document.getElementById("soundProfiles");
 const soundStatusEl = document.getElementById("soundStatus");
 const soundPaletteEl = document.getElementById("soundPalette");
+const soundSearchInput = document.getElementById("soundSearch");
+const soundFiltersEl = document.getElementById("soundFilters");
+const soundResultsEl = document.getElementById("soundResults");
 const sampleCacheStatusEl = document.getElementById("sampleCacheStatus");
 const sampleCacheRefreshBtn = document.getElementById("sampleCacheRefresh");
 const sampleCacheClearBtn = document.getElementById("sampleCacheClear");
-let soundProfile = SOUND_PROFILES[0].id;
-if (store) {
-  const savedSoundProfile = store.getItem(SOUND_PROFILE_KEY);
-  if (SOUND_PROFILES.some(p => p.id === savedSoundProfile)) soundProfile = savedSoundProfile;
-}
-const loadedSoundProfiles = {};
+let soundsLoaded = false;
 
-function renderSoundProfiles() {
-  soundProfilesEl.textContent = "";
-  SOUND_PROFILES.forEach(profile => {
-    const b = document.createElement("button");
-    b.className = "soundProfileBtn";
-    b.dataset.profile = profile.id;
-    b.innerHTML = '<div class="soundProfileName"></div><div class="soundProfileDesc"></div>';
-    b.querySelector(".soundProfileName").textContent = profile.name;
-    b.querySelector(".soundProfileDesc").textContent = profile.desc;
-    bindTap(b, () => setSoundProfile(profile.id));
-    soundProfilesEl.appendChild(b);
-  });
-  renderSoundStatus();
+async function loadSounds() {
+  if (soundsLoaded) return;
+  for (const entry of SOUND_MAPS) {
+    if (entry.kind === "samples") {
+      if (typeof samples !== "function") throw new Error("samples()が見つかりません");
+      await samples(...entry.args);
+    } else if (entry.kind === "aliasBank") {
+      if (typeof aliasBank === "function") await aliasBank(...entry.args);
+    } else if (entry.kind === "registerZZFXSounds") {
+      if (typeof registerZZFXSounds === "function") await registerZZFXSounds();
+    }
+  }
+  soundsLoaded = true;
 }
 
 function renderSoundPalette() {
@@ -734,63 +780,144 @@ function renderSoundPalette() {
 }
 
 function renderSoundStatus(text) {
-  soundProfilesEl.querySelectorAll(".soundProfileBtn").forEach(b => {
-    b.classList.toggle("active", b.dataset.profile === soundProfile);
-  });
-  const profile = SOUND_PROFILES.find(p => p.id === soundProfile) || SOUND_PROFILES[0];
-  soundStatusEl.textContent = text || (loadedSoundProfiles[soundProfile] ? profile.loadText + " 読込済み" : profile.loadText);
+  if (text) { soundStatusEl.textContent = text; return; }
+  if (!soundsLoaded) { soundStatusEl.textContent = "サウンド読込中…"; return; }
+  const all = listSounds();
+  soundStatusEl.textContent = "サウンド読込済み" + (all ? " " + all.length + "音" : "");
 }
-
-async function setSoundProfile(profileId) {
-  const profile = SOUND_PROFILES.find(p => p.id === profileId);
-  if (!profile) return;
-  soundProfile = profile.id;
-  if (store) { try { store.setItem(SOUND_PROFILE_KEY, soundProfile); } catch (e) {} }
-  renderSoundStatus(profile.loadText + " 読込中...");
-  try {
-    await loadSoundProfile(soundProfile);
-    renderSoundStatus(profile.loadText + " 読込済み");
-    setStatus(profile.loadText + " 読込済み", playing ? "playing" : "ready");
-  } catch (e) {
-    renderSoundStatus(profile.loadText + " 読込失敗");
-    setStatus("サウンド読込失敗", playing ? "playing" : "error");
-    showError(String(e && e.message ? e.message : e));
-  }
-}
-
-async function loadSoundProfile(profileId, opts = {}) {
-  const profile = SOUND_PROFILES.find(p => p.id === profileId) || SOUND_PROFILES[0];
-  if (loadedSoundProfiles[profile.id]) return;
-  for (const entry of profile.maps) {
-    if (entry.kind === "samples") {
-      if (typeof samples !== "function") throw new Error("samples()が見つかりません");
-      await samples(...entry.args);
-    } else if (entry.kind === "aliasBank") {
-      if (typeof aliasBank === "function") await aliasBank(...entry.args);
-    } else if (entry.kind === "registerZZFXSounds") {
-      if (typeof registerZZFXSounds === "function") await registerZZFXSounds();
-    }
-  }
-  loadedSoundProfiles[profile.id] = true;
-  if (!opts.boot) renderSoundStatus();
-}
-renderSoundProfiles();
 renderSoundPalette();
 
-async function sampleCacheEntries() {
-  if (!("caches" in window)) return null;
-  const cache = await caches.open(SAMPLE_CACHE_NAME);
-  return cache.keys();
+/* ─────────────────────────────────────
+   サウンド検索(soundMapに登録済みの音色名から探す)
+───────────────────────────────────── */
+const SOUND_FILTERS = [
+  { id: "all",   label: "全て",         match: () => true },
+  { id: "drum",  label: "ドラムマシン", match: o => o.tag === "drum-machines" },
+  { id: "sample",label: "サンプル",     match: o => o.type !== "synth" && o.tag !== "drum-machines" },
+  { id: "synth", label: "シンセ",       match: o => o.type === "synth" }
+];
+const SOUND_RESULT_LIMIT = 60;
+let soundFilter = SOUND_FILTERS[0].id;
+
+function listSounds() {
+  if (typeof strudel === "undefined" || !strudel.soundMap) return null;
+  const map = strudel.soundMap.get();
+  if (!map) return null;
+  return Object.keys(map).filter(n => !n.startsWith("_")).sort().map(name => {
+    const data = (map[name] && map[name].data) || {};
+    const s = data.samples;
+    let count = 0;
+    if (Array.isArray(s)) count = s.length;
+    else if (s && typeof s === "object") count = Object.keys(s).length;
+    return { name, type: data.type || "", tag: data.tag || "", count };
+  });
 }
 
-async function refreshSampleCacheStatus() {
+// カーソルが文字列リテラル内なら名前だけ、外なら s("名前") ごと挿入する
+function insertSoundName(name) {
+  const quotes = (ed.value.slice(0, ed.selectionStart).match(/"/g) || []).length;
+  insertAtCursor(quotes % 2 === 1 ? name : 's("' + name + '")', null);
+  closeDrawer();
+}
+
+function renderSoundFilters() {
+  soundFiltersEl.textContent = "";
+  SOUND_FILTERS.forEach(f => {
+    const b = document.createElement("button");
+    b.className = "soundFilterBtn";
+    b.textContent = f.label;
+    b.dataset.filter = f.id;
+    bindTap(b, () => {
+      soundFilter = f.id;
+      renderSoundResults();
+    });
+    soundFiltersEl.appendChild(b);
+  });
+}
+
+function renderSoundResults() {
+  soundFiltersEl.querySelectorAll(".soundFilterBtn").forEach(b => {
+    b.classList.toggle("active", b.dataset.filter === soundFilter);
+  });
+  soundResultsEl.textContent = "";
+  const info = msg => {
+    const d = document.createElement("div");
+    d.className = "soundResultsInfo";
+    d.textContent = msg;
+    soundResultsEl.appendChild(d);
+  };
+  const all = listSounds();
+  if (!all || !all.length) { info("サウンド読込後に検索できます"); return; }
+  const q = soundSearchInput.value.trim().toLowerCase();
+  const filter = SOUND_FILTERS.find(f => f.id === soundFilter) || SOUND_FILTERS[0];
+  const hits = all.filter(o => filter.match(o) && (!q || o.name.toLowerCase().includes(q)));
+  if (!hits.length) { info("「" + q + "」に一致する音色はありません"); return; }
+  hits.slice(0, SOUND_RESULT_LIMIT).forEach(o => {
+    const b = document.createElement("button");
+    b.className = "soundResult";
+    b.textContent = o.name;
+    if (o.count > 1) {
+      const small = document.createElement("small");
+      small.textContent = "×" + o.count;
+      b.appendChild(small);
+    }
+    bindTap(b, () => insertSoundName(o.name));
+    soundResultsEl.appendChild(b);
+  });
+  info(hits.length > SOUND_RESULT_LIMIT
+    ? hits.length + "件中" + SOUND_RESULT_LIMIT + "件を表示(検索で絞り込めます)"
+    : hits.length + "件");
+}
+renderSoundFilters();
+soundSearchInput.addEventListener("input", renderSoundResults);
+
+function formatBytes(n) {
+  if (!(n > 0)) return "";
+  if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + "KB";
+  return (n / 1024 / 1024).toFixed(1) + "MB";
+}
+
+async function sampleCacheSize(cache, requests) {
+  let total = 0;
+  for (const req of requests) {
+    const res = await cache.match(req);
+    if (!res) continue;
+    const len = parseInt(res.headers.get("content-length") || "", 10);
+    if (len > 0) { total += len; continue; }
+    try { total += (await res.clone().blob()).size; } catch (e) {}
+  }
+  return total;
+}
+
+// manual=true(確認ボタン)のときは時刻とサイズを付けて、押した結果が必ず見えるようにする
+async function refreshSampleCacheStatus(manual) {
+  if (!("caches" in window)) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ非対応";
+    return;
+  }
+  if (manual) sampleCacheStatusEl.textContent = "確認中…";
   try {
-    const entries = await sampleCacheEntries();
-    if (!entries) {
-      sampleCacheStatusEl.textContent = "サンプルキャッシュ非対応";
+    const cache = await caches.open(SAMPLE_CACHE_NAME);
+    const entries = await cache.keys();
+    if (!entries.length) {
+      // 初回訪問はService Workerがまだページを制御しておらず、再生してもキャッシュされない
+      const sw = navigator.serviceWorker;
+      sampleCacheStatusEl.textContent = (sw && !sw.controller)
+        ? "キャッシュ準備中(ページ再読み込み後に有効)"
+        : "サンプルキャッシュ 0件(再生すると自動保存)";
       return;
     }
-    sampleCacheStatusEl.textContent = "サンプルキャッシュ " + entries.length + "件";
+    let text = "サンプルキャッシュ " + entries.length + "件";
+    if (manual) {
+      const size = await sampleCacheSize(cache, entries);
+      if (size) text += " / " + formatBytes(size);
+      const d = new Date();
+      text += " (" +
+        String(d.getHours()).padStart(2, "0") + ":" +
+        String(d.getMinutes()).padStart(2, "0") + ":" +
+        String(d.getSeconds()).padStart(2, "0") + " 時点)";
+    }
+    sampleCacheStatusEl.textContent = text;
   } catch (e) {
     sampleCacheStatusEl.textContent = "サンプルキャッシュ確認失敗";
   }
@@ -811,7 +938,7 @@ async function clearSampleCache() {
   }
 }
 
-bindTap(sampleCacheRefreshBtn, refreshSampleCacheStatus);
+bindTap(sampleCacheRefreshBtn, () => refreshSampleCacheStatus(true));
 bindTap(sampleCacheClearBtn, clearSampleCache);
 refreshSampleCacheStatus();
 
@@ -965,13 +1092,11 @@ function normalizeSongRecord(raw, fallbackId) {
   if (!code.trim()) return null;
   const now = Date.now();
   const theme = ["", "greenText", "archBtw"].includes(raw.theme) ? raw.theme : "";
-  const profile = SOUND_PROFILES.some(p => p.id === raw.soundProfile) ? raw.soundProfile : SOUND_PROFILES[0].id;
   return {
     id: String(raw.id || fallbackId || makeSongId()).slice(0, 90),
     title: String(raw.title || "Untitled").trim().slice(0, 60) || "Untitled",
     code,
     theme,
-    soundProfile: profile,
     snapshots: cleanSnapshots(raw.snapshots),
     createdAt: Number(raw.createdAt) || now,
     updatedAt: Number(raw.updatedAt) || now
@@ -1026,7 +1151,6 @@ function currentSongDraft() {
     title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
     code: ed.value,
     theme: document.documentElement.dataset.theme || "",
-    soundProfile,
     snapshots: cloneSnaps(),
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -1100,7 +1224,6 @@ async function saveCurrentSong(asNew) {
       title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
       code: ed.value,
       theme: document.documentElement.dataset.theme || "",
-      soundProfile,
       snapshots: cloneSnaps(),
       createdAt: existing ? (existing.createdAt || Date.now()) : Date.now(),
       updatedAt: Date.now()
@@ -1125,7 +1248,6 @@ async function loadSong(song) {
   persistSnaps();
   renderSnaps();
   if (song.theme !== undefined) applyTheme(song.theme || "");
-  if (song.soundProfile) setSoundProfile(song.soundProfile);
   afterEdit();
   updateScrubber();
   closeDrawer();
@@ -1493,9 +1615,13 @@ window.addEventListener("load", () => {
   if (typeof initStrudel === "function") {
     try {
       const initPromise = initStrudel({
-        prebake: () => loadSoundProfile(soundProfile, { boot: true })
+        prebake: () => loadSounds()
       });
-      Promise.resolve(initPromise).then(() => renderSoundStatus()).catch(e => {
+      Promise.resolve(initPromise).then(() => {
+        renderSoundStatus();
+        renderSoundResults(); // 読込前に検索タブを開いていた場合の表示を更新
+      }).catch(e => {
+        renderSoundStatus("サウンド読込失敗");
         setStatus("初期化エラー", "error");
         showError(String(e && e.message ? e.message : e));
       });
@@ -1719,9 +1845,59 @@ if (window.visualViewport) {
    ドロワー・フォントサイズ・初期値
 ───────────────────────────────────── */
 const drawer = document.getElementById("drawer");
-document.getElementById("openDrawer").addEventListener("click", () => drawer.classList.add("show"));
+const sheet = document.getElementById("sheet");
+const sheetHead = document.getElementById("sheetHead");
+const sheetBody = document.getElementById("sheetBody");
+const sheetTabBtns = [...document.querySelectorAll(".sheetTab")];
+const drawerSecs = [...document.querySelectorAll(".dsec")];
+
+let drawerTab = "patterns";
+if (store) {
+  const savedTab = store.getItem(DRAWER_TAB_KEY);
+  if (drawerSecs.some(s => s.dataset.sec === savedTab)) drawerTab = savedTab;
+}
+
+function setDrawerTab(sec) {
+  if (!drawerSecs.some(s => s.dataset.sec === sec)) return;
+  drawerTab = sec;
+  if (store) { try { store.setItem(DRAWER_TAB_KEY, sec); } catch (e) {} }
+  sheetTabBtns.forEach(b => b.classList.toggle("active", b.dataset.sec === sec));
+  drawerSecs.forEach(s => s.classList.toggle("show", s.dataset.sec === sec));
+  if (sec === "sound") renderSoundResults();
+  sheetBody.scrollTop = 0;
+}
+sheetTabBtns.forEach(b => b.addEventListener("click", () => setDrawerTab(b.dataset.sec)));
+setDrawerTab(drawerTab);
+
+function openDrawer() {
+  drawer.classList.add("show");
+  refreshSampleCacheStatus(); // 開いた時点のキャッシュ状態に更新(古い件数を出しっぱなしにしない)
+}
 function closeDrawer() { drawer.classList.remove("show"); }
+document.getElementById("openDrawer").addEventListener("click", openDrawer);
+document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
 drawer.addEventListener("click", e => { if (e.target === drawer) closeDrawer(); });
+
+/* シート上部(つまみ)を下にスワイプで閉じる。タブボタン上は誤爆防止で対象外 */
+let sheetDragY = null;
+sheetHead.addEventListener("pointerdown", e => {
+  if (e.target.closest("button")) return;
+  sheetDragY = e.clientY;
+  try { sheetHead.setPointerCapture(e.pointerId); } catch (err) {}
+});
+sheetHead.addEventListener("pointermove", e => {
+  if (sheetDragY === null) return;
+  sheet.style.transform = "translateY(" + Math.max(0, e.clientY - sheetDragY) + "px)";
+});
+function endSheetDrag(e) {
+  if (sheetDragY === null) return;
+  const dy = e.clientY - sheetDragY;
+  sheetDragY = null;
+  sheet.style.transform = "";
+  if (dy > 70) closeDrawer();
+}
+sheetHead.addEventListener("pointerup", endSheetDrag);
+sheetHead.addEventListener("pointercancel", endSheetDrag);
 
 document.getElementById("clearBtn").addEventListener("click", () => {
   ed.value = "";
@@ -1770,11 +1946,6 @@ if (sharedSong) {
   persistSnaps();
   renderSnaps();
   applyTheme(sharedSong.theme || "");
-  if (SOUND_PROFILES.some(p => p.id === sharedSong.soundProfile)) {
-    soundProfile = sharedSong.soundProfile;
-    if (store) { try { store.setItem(SOUND_PROFILE_KEY, soundProfile); } catch (e) {} }
-    renderSoundProfiles();
-  }
   ed.value = sharedSong.code;
 } else {
   ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
