@@ -79,6 +79,7 @@
   }
   .hbtn:active:not(:disabled){background:var(--line)}
   .hbtn:disabled{opacity:.35}
+  #openDrawer{width:40px;padding:0;font-size:17px;line-height:1}
 
   /* ヘッダー内の横スクロールボタン群(↶↷が見え、スクロールするとA−/A＋が現れる) */
   #hscroll{
@@ -96,14 +97,13 @@
     header{gap:8px;padding-left:12px;padding-right:10px}
     .brand small{display:none}
     #status{display:none}
-    #openDrawer{width:68px;padding:0;font-size:12px}
   }
 
   @media (max-width:340px){
     header{gap:6px;padding-left:8px;padding-right:8px}
     .brand{font-size:13px}
     #hscroll{width:70px}
-    #openDrawer{width:56px;font-size:11px}
+    #openDrawer{width:36px;font-size:16px}
   }
 
   /* ── エディタ ─────────────────────── */
@@ -306,6 +306,19 @@
   .soundResult:active{background:var(--line)}
   .soundResult small{color:var(--muted);font-size:10px;margin-left:4px}
   .soundResultsInfo{width:100%;font-size:11px;color:var(--muted);padding:0 2px}
+  #soundHint{margin:0 0 8px}
+  /* 長押しドラッグ中に指へ追従するチップと挿入位置カーソル */
+  .dragGhost{
+    position:fixed;z-index:70;pointer-events:none;transform:translate(-50%,-160%);
+    background:var(--cool);color:#062a25;font-family:var(--mono);font-size:13px;font-weight:700;
+    padding:9px 13px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.5);
+    max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .dragGhost.cancel{opacity:.35}
+  .dragCaret{
+    position:fixed;z-index:69;pointer-events:none;width:2px;background:var(--hot);
+    border-radius:1px;box-shadow:0 0 6px var(--hot);
+  }
   #soundPalette{display:flex;gap:6px;overflow-x:auto;margin:0 2px 18px;scrollbar-width:none}
   #soundPalette::-webkit-scrollbar{display:none}
   .soundChip{
@@ -424,8 +437,8 @@
     <button class="hbtn compact" id="fontMinus" aria-label="文字を小さく">A−</button>
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
   </div>
-  <button class="hbtn" id="openDrawer">パターン</button>
   <button id="playBtn" aria-label="再生">▶</button>
+  <button class="hbtn" id="openDrawer" aria-label="設定">⚙︎</button>
 </header>
 
 <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
@@ -493,6 +506,7 @@
         <input id="soundSearch" type="search" placeholder="音色を検索 (例: bd / 808 / piano)"
           autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" lang="en">
         <div id="soundFilters"></div>
+        <div class="soundResultsInfo" id="soundHint">タップで試聴 / 長押しドラッグでエディタへ挿入</div>
         <div id="soundResults"></div>
         <h2>クイック挿入</h2>
         <div id="soundPalette"></div>
@@ -813,11 +827,205 @@ function listSounds() {
   });
 }
 
-// カーソルが文字列リテラル内なら名前だけ、外なら s("名前") ごと挿入する
-function insertSoundName(name) {
-  const quotes = (ed.value.slice(0, ed.selectionStart).match(/"/g) || []).length;
-  insertAtCursor(quotes % 2 === 1 ? name : 's("' + name + '")', null);
-  closeDrawer();
+// 挿入位置が文字列リテラル内なら名前だけ、外なら s("名前") ごと挿入する。
+// 単語の途中に落とされたら近い側の境界へ寄せ、文字列内では前後の空白を補う
+function insertSoundAt(name, pos) {
+  const text = ed.value;
+  const isWord = c => !!c && /[A-Za-z0-9_]/.test(c);
+  if (isWord(text[pos - 1]) && isWord(text[pos])) {
+    let a = pos, b = pos;
+    while (isWord(text[a - 1])) a--;
+    while (isWord(text[b])) b++;
+    pos = (pos - a <= b - pos) ? a : b;
+  }
+  const quotes = (text.slice(0, pos).match(/"/g) || []).length;
+  let ins;
+  if (quotes % 2 === 1) {
+    ins = name;
+    const prev = text[pos - 1], next = text[pos];
+    if (prev && !/[\s"([<{,]/.test(prev)) ins = " " + ins;
+    if (next && !/[\s")\]>},]/.test(next)) ins = ins + " ";
+  } else {
+    ins = 's("' + name + '")';
+  }
+  ed.selectionStart = ed.selectionEnd = pos;
+  insertAtCursor(ins, null);
+}
+
+/* タップ試聴: スケジューラを通さず単発で鳴らす(再生中のパターンには影響しない) */
+function previewSound(name) {
+  if (!strudelReady || name === "input") return; // inputはマイク許可を求めるため試聴対象外
+  const sd = (typeof strudel !== "undefined" && typeof strudel.superdough === "function")
+    ? strudel.superdough : null;
+  if (!sd) return;
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state !== "running") ctx.resume();
+    // 第2引数はAudioContextの絶対時刻。相対値を渡すと再生後に「過去」扱いで鳴らない
+    const r = sd({ s: name, gain: 0.8 }, ctx.currentTime + 0.05, 0.75);
+    if (r && r.catch) r.catch(() => {});
+  } catch (e) {}
+}
+
+/* ─────────────────────────────────────
+   長押しドラッグ挿入
+   エディタと同じ書式のミラーdivを重ね、caretRangeFromPointで
+   指の位置から挿入する文字位置を求める(折り返し行にも対応)
+───────────────────────────────────── */
+let soundDrag = null; // {name, ghost, mirror, marker, index}
+
+function makeEdMirror() {
+  const cs = getComputedStyle(ed);
+  const m = document.createElement("div");
+  m.textContent = ed.value;
+  Object.assign(m.style, {
+    position: "fixed", zIndex: "55", boxSizing: "border-box",
+    font: cs.font, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing,
+    padding: cs.padding, whiteSpace: "pre-wrap", overflowWrap: "break-word",
+    overflow: "auto", color: "transparent", background: "transparent",
+    opacity: "0.01", margin: "0", border: "none",
+  });
+  document.body.appendChild(m);
+  return m;
+}
+
+function syncEdMirror(m) {
+  const r = ed.getBoundingClientRect();
+  m.style.left = r.left + "px";
+  m.style.top = r.top + "px";
+  m.style.width = r.width + "px";
+  m.style.height = r.height + "px";
+  m.scrollTop = ed.scrollTop;
+}
+
+function mirrorIndexFromPoint(x, y) {
+  const m = soundDrag.mirror;
+  let node = null, off = 0;
+  if (document.caretRangeFromPoint) {
+    const r = document.caretRangeFromPoint(x, y);
+    if (!r) return null;
+    node = r.startContainer; off = r.startOffset;
+  } else if (document.caretPositionFromPoint) {
+    const p = document.caretPositionFromPoint(x, y);
+    if (!p) return null;
+    node = p.offsetNode; off = p.offset;
+  } else return null;
+  if (!m.contains(node)) return null;
+  if (node.nodeType !== Node.TEXT_NODE) return ed.value.length; // 空エディタ等
+  return Math.min(off, ed.value.length);
+}
+
+function dragCancelZone(y) {
+  // ドック(下)とヘッダー(上)の上で離したらキャンセル
+  return y >= dock.getBoundingClientRect().top ||
+         y <= document.querySelector("header").getBoundingClientRect().bottom;
+}
+
+function startSoundDrag(name, e) {
+  drawer.classList.remove("show"); // エディタを見せる(挿入完了までドロワーは非表示)
+  const ghost = document.createElement("div");
+  ghost.className = "dragGhost";
+  ghost.textContent = name;
+  const marker = document.createElement("div");
+  marker.className = "dragCaret";
+  document.body.appendChild(ghost);
+  document.body.appendChild(marker);
+  soundDrag = { name, ghost, marker, mirror: makeEdMirror(), index: null };
+  if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
+  moveSoundDrag(e);
+}
+
+function moveSoundDrag(e) {
+  const st = soundDrag;
+  if (!st) return;
+  st.ghost.style.left = e.clientX + "px";
+  st.ghost.style.top = e.clientY + "px";
+  syncEdMirror(st.mirror);
+  const cancel = dragCancelZone(e.clientY);
+  st.ghost.classList.toggle("cancel", cancel);
+  if (cancel) { st.index = null; st.marker.style.display = "none"; return; }
+  const idx = mirrorIndexFromPoint(e.clientX, e.clientY);
+  st.index = idx;
+  if (idx === null) { st.marker.style.display = "none"; return; }
+  // ミラー内の同じ位置に折り畳んだRangeを作り、caret座標を得る
+  const textNode = st.mirror.firstChild;
+  let rect = null;
+  if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange();
+    const off = Math.min(idx, textNode.length);
+    range.setStart(textNode, off);
+    range.setEnd(textNode, off);
+    rect = range.getBoundingClientRect();
+  }
+  const fs = parseFloat(getComputedStyle(ed).fontSize) || 16;
+  const h = fs * 1.55;
+  if (rect && (rect.top || rect.left)) {
+    st.marker.style.display = "";
+    st.marker.style.left = rect.left + "px";
+    st.marker.style.top = rect.top + "px";
+    st.marker.style.height = (rect.height || h) + "px";
+  } else {
+    // 空エディタ: パディング位置に表示
+    const er = ed.getBoundingClientRect();
+    st.marker.style.display = "";
+    st.marker.style.left = (er.left + 14) + "px";
+    st.marker.style.top = (er.top + 14) + "px";
+    st.marker.style.height = h + "px";
+  }
+}
+
+function endSoundDrag(e, cancelled) {
+  const st = soundDrag;
+  if (!st) return;
+  soundDrag = null;
+  st.ghost.remove();
+  st.marker.remove();
+  st.mirror.remove();
+  if (cancelled || st.index === null || dragCancelZone(e.clientY)) {
+    drawer.classList.add("show"); // 中断: ドロワーに戻って続きを探せる
+    return;
+  }
+  insertSoundAt(st.name, st.index);
+}
+
+const LONG_PRESS_MS = 430;
+function bindSoundChip(chip, name) {
+  let down = null, longTimer = null, dragging = false;
+  chip.addEventListener("contextmenu", e => e.preventDefault()); // Androidの長押しメニュー抑止
+  chip.addEventListener("touchmove", e => { if (dragging) e.preventDefault(); }, { passive: false });
+  chip.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    down = { x: e.clientX, y: e.clientY };
+    dragging = false;
+    try { chip.setPointerCapture(e.pointerId); } catch (err) {}
+    clearTimeout(longTimer);
+    longTimer = setTimeout(() => {
+      if (!down) return;
+      dragging = true;
+      startSoundDrag(name, { clientX: down.lastX ?? down.x, clientY: down.lastY ?? down.y });
+    }, LONG_PRESS_MS);
+  });
+  chip.addEventListener("pointermove", e => {
+    if (dragging) { moveSoundDrag(e); return; }
+    if (!down) return;
+    down.lastX = e.clientX; down.lastY = e.clientY;
+    if (Math.abs(e.clientX - down.x) > 8 || Math.abs(e.clientY - down.y) > 8) {
+      clearTimeout(longTimer); // 動いたらスクロール扱い(長押し不成立)
+      down = null;
+    }
+  });
+  chip.addEventListener("pointerup", e => {
+    clearTimeout(longTimer);
+    if (dragging) { dragging = false; down = null; endSoundDrag(e, false); return; }
+    if (!down) return;
+    down = null;
+    previewSound(name); // タップ=試聴
+  });
+  chip.addEventListener("pointercancel", e => {
+    clearTimeout(longTimer);
+    down = null;
+    if (dragging) { dragging = false; endSoundDrag(e, true); }
+  });
 }
 
 function renderSoundFilters() {
@@ -861,7 +1069,7 @@ function renderSoundResults() {
       small.textContent = "×" + o.count;
       b.appendChild(small);
     }
-    bindTap(b, () => insertSoundName(o.name));
+    bindSoundChip(b, o.name);
     soundResultsEl.appendChild(b);
   });
   info(hits.length > SOUND_RESULT_LIMIT
