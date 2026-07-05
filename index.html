@@ -106,10 +106,10 @@
     flex:1;width:100%;resize:none;border:none;outline:none;
     background:transparent;color:var(--text); /* 透明: 背面の視覚化キャンバスを見せる */
     font-family:var(--mono);font-size:16px;line-height:1.55;
-    padding:14px 14px 140px;
+    padding:14px 14px 178px;
     caret-color:var(--hot);
   }
-  #ed.withVisuals{padding-bottom:270px} /* 視覚化エリアの分だけ余白を増やす */
+  #ed.withVisuals{padding-bottom:308px} /* 視覚化エリアの分だけ余白を増やす */
   #ed::selection{background:rgba(63,214,192,.28)}
 
   /* ── 下部ドック ───────────────────── */
@@ -165,7 +165,21 @@
     box-shadow:inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 8px rgba(63,214,192,.4);
   }
 
-  /* 編集操作(カーソル移動・undo/redo) + 関数チップ */
+  /* 作曲モード + 編集操作(カーソル移動・undo/redo) + 関数チップ */
+  #modes{
+    display:flex;gap:6px;padding:8px 10px 0;overflow-x:auto;
+    scrollbar-width:none;
+  }
+  #modes::-webkit-scrollbar{display:none}
+  .modeBtn{
+    flex:1 0 54px;height:32px;border-radius:8px;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+    font-size:12px;font-weight:700;
+  }
+  .modeBtn.active{
+    background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool);
+  }
+  .modeBtn:active{background:var(--line)}
   #editrow{display:flex;gap:6px;align-items:stretch;padding:8px 10px 2px}
   .ekey{
     width:36px;border-radius:9px;flex:0 0 auto;
@@ -198,6 +212,8 @@
   }
   .key:active{background:var(--line)}
   @media (max-width:430px){
+    #modes{gap:5px;padding-left:8px;padding-right:8px}
+    .modeBtn{flex-basis:50px;font-size:11px}
     #keys{gap:4px;padding:6px 8px}
     .key{font-size:13px}
   }
@@ -297,6 +313,7 @@
     <div id="scrubVal">0</div>
   </div>
 
+  <div id="modes"></div>
   <div id="editrow">
     <button class="ekey" id="caretL" aria-label="カーソルを左へ">←</button>
     <button class="ekey" id="caretR" aria-label="カーソルを右へ">→</button>
@@ -359,6 +376,7 @@ const store = (() => {
 const SAVE_KEY = "strudel-pocket-code";
 const FONT_KEY = "strudel-pocket-font";
 const THEME_KEY = "strudel-pocket-theme";
+const MODE_KEY = "strudel-pocket-chip-mode";
 
 /* ─────────────────────────────────────
    プリセット
@@ -395,28 +413,68 @@ const PRESETS = [
    チップ・記号キー定義
    [挿入文字列, 表示ラベル, カーソル位置(nullなら末尾)]
 ───────────────────────────────────── */
-const CHIPS = [
-  ['s("")',                 's("…")',        3],
-  ['note("")',              'note',          6],
-  ['n("")',                 'n',             3],
-  ['.fast(2)',              '.fast',         6],
-  ['.slow(2)',              '.slow',         6],
-  ['.rev()',                '.rev',          null],
-  ['.jux(rev)',             '.jux(rev)',     null],
-  ['.lpf(800)',             '.lpf',          5],
-  ['.hpf(400)',             '.hpf',          5],
-  ['.gain(0.8)',            '.gain',         6],
-  ['.room(0.5)',            '.room',         6],
-  ['.delay(0.3)',           '.delay',        7],
-  ['.pan(sine)',            '.pan(sine)',    null],
-  ['.speed(1.5)',           '.speed',        7],
-  ['.crush(4)',             '.crush',        7],
-  ['.scale("C:minor")',     '.scale',        8],
-  ['.sometimes(x=>x.rev())','.sometimes',    null],
-  ['.pianoroll()',          '.pianoroll',    null],
-  ['.scope()',              '.scope',        null],
-  ['setcpm(30)',            'setcpm',        7],
-  ['stack(\n  \n)',         'stack',         9],
+const CHIP_MODES = [
+  {
+    id: "core", label: "基本", chips: [
+      ['s("")',                 's("…")',        3],
+      ['note("")',              'note',          6],
+      ['n("")',                 'n',             3],
+      ['setcpm(30)',            'setcpm',        7],
+      ['stack(\n  \n)',         'stack',         9],
+      ['.gain(0.8)',            '.gain',         6],
+      ['.lpf(800)',             '.lpf',          5],
+      ['.room(0.5)',            '.room',         6],
+    ]
+  },
+  {
+    id: "drums", label: "ドラム", chips: [
+      ['s("bd*4")',             'bd*4',          null],
+      ['s("~ sd ~ sd")',        'snare',         null],
+      ['s("hh*8")',             'hh*8',          null],
+      ['s("bd ~ [~ bd] ~")',    'kick+',         null],
+      ['s("~ sd")',             '~ sd',          null],
+      ['s("bd, ~ sd, hh*8")',   'kit',           null],
+      ['.bank("RolandTR909")',  '909',           null],
+      ['.speed(1.5)',           '.speed',        7],
+    ]
+  },
+  {
+    id: "pitch", label: "音程", chips: [
+      ['note("")',              'note',          6],
+      ['n("")',                 'n',             3],
+      ['.scale("C4:minor")',    'minor',         8],
+      ['.scale("C4:minor:pentatonic")', 'penta', 8],
+      ['.s("sawtooth")',        'saw',           null],
+      ['.s("triangle")',        'tri',           null],
+      ['.release(.2)',          'release',       9],
+      ['.lpf(800)',             '.lpf',          5],
+    ]
+  },
+  {
+    id: "tone", label: "音色", chips: [
+      ['.lpf(800)',             '.lpf',          5],
+      ['.hpf(400)',             '.hpf',          5],
+      ['.lpq(8)',               '.lpq',          5],
+      ['.lpenv(3)',             '.lpenv',        7],
+      ['.gain(0.8)',            '.gain',         6],
+      ['.room(0.5)',            '.room',         6],
+      ['.delay(0.3)',           '.delay',        7],
+      ['.pan(sine)',            '.pan',          null],
+      ['.crush(4)',             '.crush',        7],
+    ]
+  },
+  {
+    id: "form", label: "構成", chips: [
+      ['.fast(2)',              '.fast',         6],
+      ['.slow(2)',              '.slow',         6],
+      ['.rev()',                '.rev',          null],
+      ['.jux(rev)',             '.jux',          null],
+      ['.sometimes(x=>x.rev())','.sometimes',    null],
+      ['.pianoroll()',          '.pianoroll',    null],
+      ['.scope()',              '.scope',        null],
+      ['.spectrum()',           '.spectrum',     null],
+    ]
+  },
 ];
 
 const KEYS = [
@@ -436,14 +494,47 @@ const KEYS = [
 /* ─────────────────────────────────────
    UI生成
 ───────────────────────────────────── */
+const modesEl = document.getElementById("modes");
 const chipsEl = document.getElementById("chips");
-CHIPS.forEach(([text, label, caret]) => {
-  const b = document.createElement("button");
-  b.className = "chip";
-  b.textContent = label;
-  bindInsert(b, text, caret);
-  chipsEl.appendChild(b);
-});
+let chipMode = CHIP_MODES[0].id;
+if (store) {
+  const savedMode = store.getItem(MODE_KEY);
+  if (CHIP_MODES.some(m => m.id === savedMode)) chipMode = savedMode;
+}
+
+function renderChipModes() {
+  modesEl.textContent = "";
+  CHIP_MODES.forEach(mode => {
+    const b = document.createElement("button");
+    b.className = "modeBtn";
+    b.textContent = mode.label;
+    b.dataset.mode = mode.id;
+    bindTap(b, () => setChipMode(mode.id));
+    modesEl.appendChild(b);
+  });
+}
+
+function setChipMode(modeId) {
+  if (!CHIP_MODES.some(m => m.id === modeId)) return;
+  chipMode = modeId;
+  if (store) { try { store.setItem(MODE_KEY, modeId); } catch (e) {} }
+  renderChips();
+}
+
+function renderChips() {
+  chipsEl.textContent = "";
+  modesEl.querySelectorAll(".modeBtn").forEach(b => b.classList.toggle("active", b.dataset.mode === chipMode));
+  const mode = CHIP_MODES.find(m => m.id === chipMode) || CHIP_MODES[0];
+  mode.chips.forEach(([text, label, caret]) => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.textContent = label;
+    bindInsert(b, text, caret);
+    chipsEl.appendChild(b);
+  });
+}
+renderChipModes();
+renderChips();
 
 const keysEl = document.getElementById("keys");
 KEYS.forEach(([text, label, caret]) => {
