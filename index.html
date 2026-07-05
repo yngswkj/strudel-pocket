@@ -331,6 +331,28 @@
     position:fixed;z-index:69;pointer-events:none;width:2px;
     background:var(--hot);border-radius:1px;box-shadow:0 0 6px var(--hot);
   }
+  #soundPasteBar{
+    position:fixed;left:10px;right:10px;
+    bottom:calc(var(--dock-height, 148px) + 8px);
+    z-index:45;display:flex;align-items:center;gap:8px;
+    min-height:46px;padding:6px 6px 6px 12px;border-radius:10px;
+    background:var(--surface);border:1px solid var(--cool);
+    box-shadow:0 8px 24px rgba(0,0,0,.42);
+  }
+  #soundPasteBar[hidden]{display:none}
+  #soundPasteText{
+    flex:1;min-width:0;font:12px var(--mono);color:var(--text);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  #soundPasteBtn,#soundPasteClear{
+    flex:0 0 auto;height:34px;border-radius:8px;
+    background:var(--cool);color:#062a25;border:1px solid transparent;
+    font-size:13px;font-weight:700;
+  }
+  #soundPasteBtn{padding:0 14px}
+  #soundPasteClear{
+    width:34px;background:var(--surface2);color:var(--muted);border-color:var(--line);
+  }
   #soundPalette{display:flex;gap:6px;overflow-x:auto;margin:0 2px 18px;scrollbar-width:none}
   #soundPalette::-webkit-scrollbar{display:none}
   .soundChip{
@@ -518,7 +540,7 @@
         <input id="soundSearch" type="search" placeholder="音色を検索 (例: bd / 808 / piano)"
           autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" lang="en">
         <div id="soundFilters"></div>
-        <div class="soundResultsInfo" id="soundHint">タップで試聴 / 長押ししてエディタへドラッグ</div>
+        <div class="soundResultsInfo" id="soundHint">タップで試聴 / 長押しでコピー</div>
         <div id="soundResults"></div>
         <h2>クイック挿入</h2>
         <div id="soundPalette"></div>
@@ -540,6 +562,12 @@
   </div>
 </div>
 
+<div id="soundPasteBar" hidden>
+  <span id="soundPasteText"></span>
+  <button id="soundPasteBtn">貼付</button>
+  <button id="soundPasteClear" aria-label="コピーしたサウンドを閉じる">×</button>
+</div>
+
 <script>
 "use strict";
 console.log("%c🥨 Strudel Pocket", "color:#3fd6c0;font-size:16px;font-weight:bold");
@@ -556,6 +584,10 @@ const scrub = document.getElementById("scrub");
 const fader = document.getElementById("fader");
 const scrubVal = document.getElementById("scrubVal");
 const playBtn = document.getElementById("playBtn");
+const soundPasteBar = document.getElementById("soundPasteBar");
+const soundPasteText = document.getElementById("soundPasteText");
+const soundPasteBtn = document.getElementById("soundPasteBtn");
+const soundPasteClear = document.getElementById("soundPasteClear");
 
 /* ─────────────────────────────────────
    状態
@@ -565,6 +597,7 @@ let strudelReady = false;
 let wakeLock = null;
 let scrubbing = false;
 let tok = null; // {start,end,hasDot}
+let copiedSoundName = "";
 
 /* ─────────────────────────────────────
    ストレージ(使えない環境ではメモリのみ)
@@ -881,6 +914,48 @@ function insertSoundAt(name, pos) {
   insertAtCursor(ins, null);
 }
 
+function updateSoundPastePosition() {
+  document.documentElement.style.setProperty("--dock-height", Math.ceil(dock.getBoundingClientRect().height) + "px");
+}
+
+function showSoundPasteBar(name, systemCopied) {
+  copiedSoundName = name;
+  soundPasteText.textContent = name + (systemCopied ? "をコピー" : "をコピー(アプリ内)");
+  soundPasteBar.hidden = false;
+  updateSoundPastePosition();
+}
+
+function hideSoundPasteBar(clear) {
+  soundPasteBar.hidden = true;
+  if (clear) copiedSoundName = "";
+}
+
+function copySoundForPaste(name) {
+  copiedSoundName = name;
+  swallowClickSoon();
+  if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
+  closeDrawer();
+  try { ed.focus({ preventScroll: true }); } catch (e) { ed.focus(); }
+  showSoundPasteBar(name, false);
+  setStatus(name + "をアプリ内コピー", playing ? "playing" : "ready");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText('s("' + name + '")')
+      .then(() => {
+        if (copiedSoundName !== name || soundPasteBar.hidden) return;
+        showSoundPasteBar(name, true);
+        setStatus(name + "をコピー", playing ? "playing" : "ready");
+      })
+      .catch(() => {});
+  }
+}
+
+function pasteCopiedSound() {
+  if (!copiedSoundName) return;
+  insertSoundAt(copiedSoundName, ed.selectionStart);
+  setStatus(copiedSoundName + "を貼付", playing ? "playing" : "ready");
+  hideSoundPasteBar(true);
+}
+
 /* タップ試聴: スケジューラを通さず単発で鳴らす(再生中のパターンには影響しない) */
 function previewSound(name) {
   if (!strudelReady || name === "input") return; // inputはマイク許可を求めるため試聴対象外
@@ -899,7 +974,7 @@ function previewSound(name) {
   } catch (e) {}
 }
 
-/* 長押しドラッグ: シートを退避し、エディタ上の指位置に挿入する */
+/* サウンド操作: タッチ長押しはコピー、マウスはドラッグ挿入 */
 const LONG_PRESS_MS = 430;
 let swallowNextClick = false;
 let soundDrag = null; // {name, ghost, caret, mirror, index, pointerId}
@@ -1086,8 +1161,14 @@ function bindSoundChip(chip, name) {
     longTimer = setTimeout(() => {
       if (!down) return;
       const point = { clientX: down.lastX, clientY: down.lastY, pointerId: down.pointerId };
+      const pointerType = down.pointerType;
       down = null;
-      startSoundDrag(name, point);
+      try { chip.releasePointerCapture(point.pointerId); } catch (err) {}
+      if (pointerType === "touch" || pointerType === "pen") {
+        copySoundForPaste(name);
+      } else {
+        startSoundDrag(name, point);
+      }
     }, LONG_PRESS_MS);
   });
   chip.addEventListener("pointermove", e => {
@@ -1704,6 +1785,16 @@ function bindTap(btn, fn) {
 function bindInsert(btn, text, caret) {
   bindTap(btn, () => insertAtCursor(text, caret));
 }
+bindTap(soundPasteBtn, pasteCopiedSound);
+bindTap(soundPasteClear, () => hideSoundPasteBar(true));
+window.addEventListener("resize", () => {
+  if (!soundPasteBar.hidden) updateSoundPastePosition();
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    if (!soundPasteBar.hidden) updateSoundPastePosition();
+  });
+}
 
 function insertAtCursor(text, caret) {
   ed.focus();
@@ -1842,7 +1933,12 @@ function updateScrubber() {
   const active = document.activeElement;
   if (active && scrub.contains(active)) return; // フェーダー操作中は維持
   const t = numberAtCaret();
-  if (!t) { scrub.classList.remove("show"); tok = null; return; }
+  if (!t) {
+    scrub.classList.remove("show");
+    tok = null;
+    if (!soundPasteBar.hidden) updateSoundPastePosition();
+    return;
+  }
   // すでにフェーダーが掴んでいるのと同じ数値なら、レンジ(min/max/step)は据え置く。
   // 値を書き換えるたびにmaxがv*2へ再拡張されて値が際限なく伸びるのを防ぐ。
   if (tok && conf && t.start === tok.start && scrub.classList.contains("show")) {
@@ -1857,6 +1953,7 @@ function updateScrubber() {
   fader.value = t.value;
   scrubVal.textContent = t.raw;
   scrub.classList.add("show");
+  if (!soundPasteBar.hidden) updateSoundPastePosition();
 }
 
 function applyScrubValue(v) {
