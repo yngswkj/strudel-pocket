@@ -84,6 +84,7 @@
   #hscroll{
     display:flex;gap:6px;flex:0 0 auto;width:82px;overflow-x:auto;
     scrollbar-width:none;scroll-snap-type:x mandatory;
+    margin-left:auto; /* ロゴ以外のボタン群を右寄せする */
   }
   #hscroll::-webkit-scrollbar{display:none}
   #hscroll .hbtn{
@@ -96,14 +97,13 @@
     header{gap:8px;padding-left:12px;padding-right:10px}
     .brand small{display:none}
     #status{display:none}
-    #openDrawer{width:68px;padding:0;font-size:12px}
   }
 
   @media (max-width:340px){
     header{gap:6px;padding-left:8px;padding-right:8px}
     .brand{font-size:13px}
     #hscroll{width:70px}
-    #openDrawer{width:56px;font-size:11px}
+    #openDrawer{padding:0 8px;font-size:11px}
   }
 
   /* ── エディタ ─────────────────────── */
@@ -244,16 +244,36 @@
   }
   #drawer.show{display:block}
   #sheet{
-    position:absolute;left:0;right:0;bottom:0;max-height:82%;
+    position:absolute;left:0;right:0;bottom:0;height:min(82%,760px);
+    display:flex;flex-direction:column;
     background:var(--surface);border-radius:18px 18px 0 0;
     border-top:1px solid var(--line);
+    overflow:hidden;
+  }
+  /* シート上部(つまみ+タブ)は固定。つまみ部分の下スワイプで閉じられる */
+  #sheetHead{
+    flex:0 0 auto;padding:8px 14px 10px;border-bottom:1px solid var(--line);
+    touch-action:none;
+  }
+  #sheetGrip{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
+  #sheetTabs{display:flex;gap:6px;align-items:center}
+  .sheetTab{
+    flex:1;height:38px;border-radius:9px;font-size:12px;font-weight:700;min-width:0;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+    white-space:nowrap;
+  }
+  .sheetTab.active{background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool)}
+  .sheetTab:active{background:var(--line)}
+  #closeDrawer{
+    width:38px;height:38px;border-radius:9px;flex:0 0 auto;
+    background:var(--surface2);border:1px solid var(--line);color:var(--muted);font-size:14px;
+  }
+  #sheetBody{
+    flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
     padding:14px 14px calc(20px + env(safe-area-inset-bottom));
-    overflow-y:auto;
   }
-  #sheet::before{ /* シートのつまみ(下から出るUIだと分かる視覚手がかり) */
-    content:"";display:block;width:36px;height:4px;border-radius:2px;
-    background:var(--line);margin:0 auto 12px;
-  }
+  .dsec{display:none}
+  .dsec.show{display:block}
   #sheet h2{font-size:15px;margin:2px 4px 12px;font-weight:700}
   #themes{display:flex;gap:8px;margin:0 2px 18px}
   .themeBtn{
@@ -261,6 +281,73 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  #soundStatus{font-size:12px;color:var(--muted);margin:0 4px 10px}
+  /* サウンド検索(スマホ前提: 大きめのタップ領域と横スクロールのフィルタ) */
+  #soundSearch{
+    width:100%;height:44px;border-radius:10px;padding:0 12px;margin:0 0 8px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font:14px var(--mono);
+  }
+  #soundSearch::placeholder{color:var(--muted)}
+  #soundFilters{display:flex;gap:6px;margin:0 0 10px;overflow-x:auto;scrollbar-width:none}
+  #soundFilters::-webkit-scrollbar{display:none}
+  .soundFilterBtn{
+    flex:0 0 auto;height:34px;border-radius:999px;padding:0 14px;font-size:12px;font-weight:700;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+  }
+  .soundFilterBtn.active{background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool)}
+  #soundResults{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px}
+  .soundResult{
+    flex:0 0 auto;max-width:100%;border-radius:9px;padding:9px 11px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:12px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .soundResult:active{background:var(--line)}
+  .soundResult small{color:var(--muted);font-size:10px;margin-left:4px}
+  .soundResultsInfo{width:100%;font-size:11px;color:var(--muted);padding:0 2px}
+  .soundMore{
+    width:100%;height:42px;border-radius:10px;font-size:13px;font-weight:700;
+    background:var(--surface2);border:1px solid var(--line);color:var(--cool);
+  }
+  .soundMore:active{background:var(--line)}
+  #soundHint{margin:0 0 8px}
+  #drawer.soundDragging{
+    pointer-events:none;background:transparent;backdrop-filter:none;
+  }
+  #drawer.soundDragging #sheet{
+    transform:translateY(calc(100% + 24px));transition:transform .16s ease;
+  }
+  #ed.soundDropTarget{outline:2px solid var(--cool);outline-offset:-4px}
+  .soundDragGhost{
+    position:fixed;z-index:70;pointer-events:none;transform:translate(-50%,-150%);
+    max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    padding:9px 13px;border-radius:10px;
+    background:var(--cool);color:#062a25;
+    font:700 13px var(--mono);box-shadow:0 4px 16px rgba(0,0,0,.5);
+  }
+  .soundDragGhost.cancel{opacity:.35;background:var(--surface2);color:var(--muted)}
+  .soundDropCaret{
+    position:fixed;z-index:69;pointer-events:none;width:2px;
+    background:var(--hot);border-radius:1px;box-shadow:0 0 6px var(--hot);
+  }
+  #soundPalette{display:flex;gap:6px;overflow-x:auto;margin:0 2px 18px;scrollbar-width:none}
+  #soundPalette::-webkit-scrollbar{display:none}
+  .soundChip{
+    flex:0 0 auto;border-radius:999px;padding:9px 12px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:12px;
+  }
+  #sampleCacheControls{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
+    margin:0 2px 18px;
+  }
+  #sampleCacheStatus{min-width:0;font-size:12px;color:var(--muted);line-height:1.4}
+  #sampleCacheRefresh,#sampleCacheClear{
+    height:32px;border-radius:8px;padding:0 8px;font-size:12px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  #sampleCacheClear{color:var(--warn)}
   #snapSlots{
     display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;margin:0 2px 18px;
@@ -279,6 +366,44 @@
   }
   .snapSave{color:var(--cool)}
   .snapLoad:disabled{opacity:.35}
+  #songPanel{margin:0 2px 18px}
+  #songTitle{
+    width:100%;height:42px;border-radius:10px;padding:0 12px;margin-bottom:8px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font:14px var(--mono);
+  }
+  #songButtons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  #songSave,#songSaveAs{
+    height:40px;border-radius:10px;font-size:13px;font-weight:700;
+    border:1px solid var(--line);
+  }
+  #songSave{background:var(--cool);color:#062a25;border-color:transparent}
+  #songSaveAs{background:var(--surface2);color:var(--text)}
+  #songUtilityButtons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+  #songExport,#songImport,#songShare{
+    height:36px;border-radius:10px;font-size:12px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  #songImportFile{display:none}
+  #songList{display:grid;gap:8px}
+  .songRow{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
+    min-width:0;padding:8px;background:var(--surface2);
+    border:1px solid var(--line);border-radius:10px;
+  }
+  .songRow.active{border-color:var(--cool)}
+  .songMeta{min-width:0}
+  .songName{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .songInfo{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .songLoad,.songDelete{
+    height:32px;border-radius:8px;padding:0 8px;font-size:12px;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+  }
+  .songDelete{color:var(--warn)}
+  .songEmpty{
+    padding:9px 10px;border-radius:10px;border:1px dashed var(--line);
+    color:var(--muted);font-size:12px;
+  }
   .card{
     background:var(--surface2);border:1px solid var(--line);border-radius:14px;
     padding:12px;margin-bottom:10px;
@@ -303,6 +428,13 @@
     width:100%;height:42px;border-radius:10px;font-size:13px;margin-top:4px;
     background:transparent;border:1px solid rgba(255,84,112,.5);color:var(--warn);
   }
+  /* 小型スマホではスナップを1列に落として押しやすくする */
+  @media (max-width:360px){
+    #snapSlots{grid-template-columns:1fr}
+    .sheetTab{font-size:11px}
+    #sheetHead{padding-left:10px;padding-right:10px}
+    #sheetBody{padding-left:10px;padding-right:10px}
+  }
 </style>
 </head>
 <body>
@@ -317,7 +449,7 @@
     <button class="hbtn compact" id="fontMinus" aria-label="文字を小さく">A−</button>
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
   </div>
-  <button class="hbtn" id="openDrawer">パターン</button>
+  <button class="hbtn" id="openDrawer">設定</button>
   <button id="playBtn" aria-label="再生">▶</button>
 </header>
 
@@ -347,17 +479,64 @@
 
 <div id="drawer">
   <div id="sheet">
-    <h2>テーマ</h2>
-    <div id="themes">
-      <button class="themeBtn active" data-theme="">Pocket</button>
-      <button class="themeBtn" data-theme="greenText">greenText</button>
-      <button class="themeBtn" data-theme="archBtw">archBtw</button>
+    <div id="sheetHead">
+      <div id="sheetGrip"></div>
+      <div id="sheetTabs">
+        <button class="sheetTab" data-sec="patterns">パターン</button>
+        <button class="sheetTab" data-sec="songs">曲</button>
+        <button class="sheetTab" data-sec="sound">サウンド</button>
+        <button class="sheetTab" data-sec="theme">テーマ</button>
+        <button id="closeDrawer" aria-label="閉じる">✕</button>
+      </div>
     </div>
-    <h2>スナップ</h2>
-    <div id="snapSlots"></div>
-    <h2>パターン集</h2>
-    <div id="cards"></div>
-    <button class="danger" id="clearBtn">エディタを空にする</button>
+    <div id="sheetBody">
+      <section class="dsec" data-sec="patterns">
+        <div id="cards"></div>
+        <button class="danger" id="clearBtn">エディタを空にする</button>
+      </section>
+      <section class="dsec" data-sec="songs">
+        <h2>スナップ</h2>
+        <div id="snapSlots"></div>
+        <h2>曲</h2>
+        <div id="songPanel">
+          <input id="songTitle" type="text" maxlength="60" placeholder="曲名">
+          <div id="songButtons">
+            <button id="songSave">保存</button>
+            <button id="songSaveAs">別名保存</button>
+          </div>
+          <div id="songUtilityButtons">
+            <button id="songExport">書出</button>
+            <button id="songImport">読込</button>
+            <button id="songShare">リンク</button>
+          </div>
+          <input id="songImportFile" type="file" accept="application/json,.json">
+          <div id="songList"></div>
+        </div>
+      </section>
+      <section class="dsec" data-sec="sound">
+        <div id="soundStatus">サウンド読込中…</div>
+        <input id="soundSearch" type="search" placeholder="音色を検索 (例: bd / 808 / piano)"
+          autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" lang="en">
+        <div id="soundFilters"></div>
+        <div class="soundResultsInfo" id="soundHint">タップで試聴 / 長押ししてエディタへドラッグ</div>
+        <div id="soundResults"></div>
+        <h2>クイック挿入</h2>
+        <div id="soundPalette"></div>
+        <h2>オフラインキャッシュ</h2>
+        <div id="sampleCacheControls">
+          <div id="sampleCacheStatus">サンプルキャッシュ未確認</div>
+          <button id="sampleCacheRefresh">確認</button>
+          <button id="sampleCacheClear">削除</button>
+        </div>
+      </section>
+      <section class="dsec" data-sec="theme">
+        <div id="themes">
+          <button class="themeBtn active" data-theme="">Pocket</button>
+          <button class="themeBtn" data-theme="greenText">greenText</button>
+          <button class="themeBtn" data-theme="archBtw">archBtw</button>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -402,7 +581,13 @@ const SAVE_KEY = "strudel-pocket-code";
 const FONT_KEY = "strudel-pocket-font";
 const THEME_KEY = "strudel-pocket-theme";
 const MODE_KEY = "strudel-pocket-chip-mode";
+const DRAWER_TAB_KEY = "strudel-pocket-drawer-tab";
 const SNAP_KEY = "strudel-pocket-snaps";
+const CURRENT_SONG_KEY = "strudel-pocket-current-song";
+const DB_NAME = "strudel-pocket-db";
+const DB_VERSION = 1;
+const SONG_STORE = "songs";
+const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
 
 /* ─────────────────────────────────────
    プリセット
@@ -517,6 +702,28 @@ const KEYS = [
   ['()', '( )', 1],
 ];
 
+const STRUDEL_CDN = "https://strudel.b-cdn.net";
+/* 本家(strudel.cc)相当のサウンドマップ。目次(JSON)の登録だけで、音声本体は初回使用時に取得される */
+const SOUND_MAPS = [
+  { kind: "registerZZFXSounds", args: [] },
+  { kind: "samples", args: ["github:tidalcycles/dirt-samples"] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/piano.json`, `${STRUDEL_CDN}/piano/`, { prebake: true }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/vcsl.json`, `${STRUDEL_CDN}/VCSL/`, { prebake: true }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/tidal-drum-machines.json`, `${STRUDEL_CDN}/tidal-drum-machines/machines/`, { prebake: true, tag: "drum-machines" }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/uzu-drumkit.json`, `${STRUDEL_CDN}/uzu-drumkit/`, { prebake: true, tag: "drum-machines" }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/uzu-wavetables.json`, `${STRUDEL_CDN}/uzu-wavetables/`, { prebake: true }] },
+  { kind: "samples", args: [`${STRUDEL_CDN}/mridangam.json`, `${STRUDEL_CDN}/mrid/`, { prebake: true, tag: "drum-machines" }] },
+  { kind: "aliasBank", args: [`${STRUDEL_CDN}/tidal-drum-machines-alias.json`] }
+];
+const SOUND_CHIPS = [
+  ['s("bd sd hh")',              'bd/sd/hh',     null],
+  ['s("bd*4").bank("AkaiLinn")', 'Akai bd',      null],
+  ['s("hh*8").bank("RolandTR808")', '808 hat',   null],
+  ['note("c4 e4 g4").piano()',   'piano()',      null],
+  ['s("mridangam_ta")',          'mridangam',    null],
+  ['s("wt_digital").note("c3")', 'wt digital',   null],
+];
+
 /* ─────────────────────────────────────
    UI生成
 ───────────────────────────────────── */
@@ -561,6 +768,487 @@ function renderChips() {
 }
 renderChipModes();
 renderChips();
+
+const soundStatusEl = document.getElementById("soundStatus");
+const soundPaletteEl = document.getElementById("soundPalette");
+const soundSearchInput = document.getElementById("soundSearch");
+const soundFiltersEl = document.getElementById("soundFilters");
+const soundResultsEl = document.getElementById("soundResults");
+const sampleCacheStatusEl = document.getElementById("sampleCacheStatus");
+const sampleCacheRefreshBtn = document.getElementById("sampleCacheRefresh");
+const sampleCacheClearBtn = document.getElementById("sampleCacheClear");
+let soundsLoaded = false;
+
+async function loadSounds() {
+  if (soundsLoaded) return;
+  for (const entry of SOUND_MAPS) {
+    if (entry.kind === "samples") {
+      if (typeof samples !== "function") throw new Error("samples()が見つかりません");
+      await samples(...entry.args);
+    } else if (entry.kind === "aliasBank") {
+      if (typeof aliasBank === "function") await aliasBank(...entry.args);
+    } else if (entry.kind === "registerZZFXSounds") {
+      if (typeof registerZZFXSounds === "function") await registerZZFXSounds();
+    }
+  }
+  soundsLoaded = true;
+}
+
+function renderSoundPalette() {
+  soundPaletteEl.textContent = "";
+  SOUND_CHIPS.forEach(([text, label, caret]) => {
+    const b = document.createElement("button");
+    b.className = "soundChip";
+    b.textContent = label;
+    bindInsert(b, text, caret);
+    soundPaletteEl.appendChild(b);
+  });
+}
+
+function renderSoundStatus(text) {
+  if (text) { soundStatusEl.textContent = text; return; }
+  if (!soundsLoaded) { soundStatusEl.textContent = "サウンド読込中…"; return; }
+  const all = listSounds();
+  soundStatusEl.textContent = "サウンド読込済み" + (all ? " " + all.length + "音" : "");
+}
+renderSoundPalette();
+
+/* ─────────────────────────────────────
+   サウンド検索(soundMapに登録済みの音色名から探す)
+───────────────────────────────────── */
+const SOUND_FILTERS = [
+  { id: "all",   label: "全て",         match: () => true },
+  { id: "drum",  label: "ドラムマシン", match: o => o.tag === "drum-machines" },
+  { id: "sample",label: "サンプル",     match: o => o.type !== "synth" && o.tag !== "drum-machines" },
+  { id: "synth", label: "シンセ",       match: o => o.type === "synth" }
+];
+const SOUND_RESULT_LIMIT = 60;
+let soundFilter = SOUND_FILTERS[0].id;
+let soundShownLimit = SOUND_RESULT_LIMIT; // 「さらに読み込む」で60件ずつ増える
+
+function listSounds() {
+  if (typeof strudel === "undefined" || !strudel.soundMap) return null;
+  const map = strudel.soundMap.get();
+  if (!map) return null;
+  return Object.keys(map).filter(n => !n.startsWith("_")).sort().map(name => {
+    const data = (map[name] && map[name].data) || {};
+    const s = data.samples;
+    let count = 0;
+    if (Array.isArray(s)) count = s.length;
+    else if (s && typeof s === "object") count = Object.keys(s).length;
+    return { name, type: data.type || "", tag: data.tag || "", count };
+  });
+}
+
+// 挿入位置が文字列リテラル内なら名前だけ、外なら s("名前") ごと挿入する。
+// 単語の途中に落とされたら近い側の境界へ寄せ、文字列内では前後の空白を補う
+function insertSoundAt(name, pos) {
+  const text = ed.value;
+  const isWord = c => !!c && /[A-Za-z0-9_]/.test(c);
+  if (isWord(text[pos - 1]) && isWord(text[pos])) {
+    let a = pos, b = pos;
+    while (isWord(text[a - 1])) a--;
+    while (isWord(text[b])) b++;
+    pos = (pos - a <= b - pos) ? a : b;
+  }
+  const quotes = (text.slice(0, pos).match(/"/g) || []).length;
+  let ins;
+  if (quotes % 2 === 1) {
+    ins = name;
+    const prev = text[pos - 1], next = text[pos];
+    if (prev && !/[\s"([<{,]/.test(prev)) ins = " " + ins;
+    if (next && !/[\s")\]>},]/.test(next)) ins = ins + " ";
+  } else {
+    ins = 's("' + name + '")';
+    const prev = text[pos - 1], next = text[pos];
+    const touchesCodeBefore = prev && !/[\s([{,]/.test(prev);
+    const touchesCodeAfter = next && !/[\s)\]}.,]/.test(next);
+    if (touchesCodeBefore || touchesCodeAfter) {
+      const lineStart = text.lastIndexOf("\n", Math.max(0, pos - 1)) + 1;
+      const lineEndRaw = text.indexOf("\n", pos);
+      const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
+      const line = text.slice(lineStart, lineEnd);
+      const nextLine = lineEndRaw === -1 ? "" : text.slice(lineEnd + 1, text.indexOf("\n", lineEnd + 1) === -1 ? text.length : text.indexOf("\n", lineEnd + 1));
+      const indent = ((nextLine || line).match(/^\s*/) || [""])[0];
+      pos = line.trim() ? lineEnd : pos;
+      const before = text[pos - 1], after = text[pos];
+      ins = (before && before !== "\n" ? "\n" + indent : "") +
+        ins +
+        (after && after !== "\n" ? "\n" + indent : "");
+    }
+  }
+  ed.selectionStart = ed.selectionEnd = pos;
+  insertAtCursor(ins, null);
+}
+
+/* タップ試聴: スケジューラを通さず単発で鳴らす(再生中のパターンには影響しない) */
+function previewSound(name) {
+  if (!strudelReady || name === "input") return; // inputはマイク許可を求めるため試聴対象外
+  const sd = (typeof strudel !== "undefined" && typeof strudel.superdough === "function")
+    ? strudel.superdough : null;
+  if (!sd) return;
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state !== "running") {
+      const resume = ctx.resume();
+      if (resume && resume.catch) resume.catch(() => {});
+    }
+    // 第2引数はAudioContextの絶対時刻。相対値を渡すと再生後に「過去」扱いで鳴らない
+    const r = sd({ s: name, gain: 0.8 }, ctx.currentTime + 0.05, 0.75);
+    if (r && r.catch) r.catch(() => {});
+  } catch (e) {}
+}
+
+/* 長押しドラッグ: シートを退避し、エディタ上の指位置に挿入する */
+const LONG_PRESS_MS = 430;
+let swallowNextClick = false;
+let soundDrag = null; // {name, ghost, caret, mirror, index, pointerId}
+
+function swallowClickSoon() {
+  swallowNextClick = true;
+  setTimeout(() => { swallowNextClick = false; }, 600);
+}
+
+// 長押し後の指離しで生じるclickがエディタのキャレットを動かすのを防ぐ
+document.addEventListener("click", e => {
+  if (swallowNextClick) {
+    swallowNextClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);
+
+function makeSoundDragMirror() {
+  const cs = getComputedStyle(ed);
+  const mirror = document.createElement("div");
+  mirror.textContent = ed.value || "\n";
+  Object.assign(mirror.style, {
+    position: "fixed", zIndex: "68", boxSizing: "border-box",
+    font: cs.font, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing,
+    padding: cs.padding, whiteSpace: "pre-wrap", overflowWrap: "break-word",
+    overflow: "auto", color: "transparent", background: "transparent",
+    opacity: "0.01", margin: "0", border: "none"
+  });
+  document.body.appendChild(mirror);
+  syncSoundDragMirror(mirror);
+  return mirror;
+}
+
+function syncSoundDragMirror(mirror) {
+  const r = ed.getBoundingClientRect();
+  mirror.style.left = r.left + "px";
+  mirror.style.top = r.top + "px";
+  mirror.style.width = r.width + "px";
+  mirror.style.height = r.height + "px";
+  mirror.scrollTop = ed.scrollTop;
+  mirror.scrollLeft = ed.scrollLeft;
+}
+
+function pointInEditor(x, y) {
+  const r = ed.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+function mirrorIndexFromPoint(mirror, x, y) {
+  if (!pointInEditor(x, y)) return null;
+  if (!ed.value) return 0;
+  let node = null, off = 0;
+  if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(x, y);
+    if (!range) return null;
+    node = range.startContainer; off = range.startOffset;
+  } else if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(x, y);
+    if (!pos) return null;
+    node = pos.offsetNode; off = pos.offset;
+  } else {
+    return null;
+  }
+  if (!mirror.contains(node)) return null;
+  if (node.nodeType !== Node.TEXT_NODE) return ed.value.length;
+  return Math.min(off, ed.value.length);
+}
+
+function placeSoundDropCaret(mirror, caret, index) {
+  if (index === null) { caret.style.display = "none"; return; }
+  const textNode = mirror.firstChild;
+  let rect = null;
+  if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange();
+    const off = Math.min(index, textNode.length);
+    range.setStart(textNode, off);
+    range.setEnd(textNode, off);
+    rect = range.getBoundingClientRect();
+  }
+  const fs = parseFloat(getComputedStyle(ed).fontSize) || 16;
+  const h = fs * 1.55;
+  caret.style.display = "";
+  if (rect && (rect.top || rect.left)) {
+    caret.style.left = rect.left + "px";
+    caret.style.top = rect.top + "px";
+    caret.style.height = (rect.height || h) + "px";
+  } else {
+    const er = ed.getBoundingClientRect();
+    caret.style.left = (er.left + 14) + "px";
+    caret.style.top = (er.top + 14) + "px";
+    caret.style.height = h + "px";
+  }
+}
+
+function startSoundDrag(name, point) {
+  if (soundDrag) endSoundDrag(point, true);
+  const ghost = document.createElement("div");
+  ghost.className = "soundDragGhost";
+  ghost.textContent = name;
+  const caret = document.createElement("div");
+  caret.className = "soundDropCaret";
+  document.body.appendChild(ghost);
+  document.body.appendChild(caret);
+  drawer.classList.add("soundDragging");
+  ed.classList.add("soundDropTarget");
+  soundDrag = {
+    name,
+    ghost,
+    caret,
+    mirror: makeSoundDragMirror(),
+    index: null,
+    pointerId: point.pointerId
+  };
+  if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
+  moveSoundDrag(point);
+}
+
+function moveSoundDrag(point) {
+  const st = soundDrag;
+  if (!st) return;
+  st.ghost.style.left = point.clientX + "px";
+  st.ghost.style.top = point.clientY + "px";
+  syncSoundDragMirror(st.mirror);
+  const index = mirrorIndexFromPoint(st.mirror, point.clientX, point.clientY);
+  st.index = index;
+  st.ghost.classList.toggle("cancel", index === null);
+  placeSoundDropCaret(st.mirror, st.caret, index);
+}
+
+function endSoundDrag(point, cancelled) {
+  const st = soundDrag;
+  if (!st) return;
+  soundDrag = null;
+  st.ghost.remove();
+  st.caret.remove();
+  st.mirror.remove();
+  drawer.classList.remove("soundDragging");
+  ed.classList.remove("soundDropTarget");
+  swallowClickSoon();
+  if (cancelled || st.index === null) {
+    drawer.classList.add("show");
+    setStatus("ドラッグをキャンセル", playing ? "playing" : "ready");
+    return;
+  }
+  insertSoundAt(st.name, st.index);
+  closeDrawer();
+  setStatus(st.name + "を挿入", playing ? "playing" : "ready");
+}
+
+document.addEventListener("pointermove", e => {
+  if (!soundDrag || e.pointerId !== soundDrag.pointerId) return;
+  e.preventDefault();
+  moveSoundDrag(e);
+}, true);
+document.addEventListener("pointerup", e => {
+  if (!soundDrag || e.pointerId !== soundDrag.pointerId) return;
+  e.preventDefault();
+  endSoundDrag(e, false);
+}, true);
+document.addEventListener("pointercancel", e => {
+  if (!soundDrag || e.pointerId !== soundDrag.pointerId) return;
+  endSoundDrag(e, true);
+}, true);
+document.addEventListener("touchmove", e => {
+  if (soundDrag) e.preventDefault();
+}, { capture: true, passive: false });
+
+function bindSoundChip(chip, name) {
+  let down = null, longTimer = null;
+  chip.addEventListener("contextmenu", e => e.preventDefault()); // Androidの長押しメニュー抑止
+  chip.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    down = {
+      x: e.clientX,
+      y: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      pointerId: e.pointerId,
+      pointerType: e.pointerType
+    };
+    try { chip.setPointerCapture(e.pointerId); } catch (err) {}
+    clearTimeout(longTimer);
+    longTimer = setTimeout(() => {
+      if (!down) return;
+      const point = { clientX: down.lastX, clientY: down.lastY, pointerId: down.pointerId };
+      down = null;
+      startSoundDrag(name, point);
+    }, LONG_PRESS_MS);
+  });
+  chip.addEventListener("pointermove", e => {
+    if (!down) return;
+    down.lastX = e.clientX;
+    down.lastY = e.clientY;
+    if (Math.abs(e.clientX - down.x) > 8 || Math.abs(e.clientY - down.y) > 8) {
+      clearTimeout(longTimer);
+      if (down.pointerType === "mouse") {
+        const point = { clientX: e.clientX, clientY: e.clientY, pointerId: down.pointerId };
+        down = null;
+        startSoundDrag(name, point);
+      } else {
+        down = null; // タッチで動いたらスクロール扱い(長押し不成立)
+      }
+    }
+  });
+  chip.addEventListener("pointerup", () => {
+    clearTimeout(longTimer);
+    if (!down) return;
+    down = null;
+    previewSound(name); // タップ=試聴
+  });
+  chip.addEventListener("pointercancel", () => { clearTimeout(longTimer); down = null; });
+}
+
+function renderSoundFilters() {
+  soundFiltersEl.textContent = "";
+  SOUND_FILTERS.forEach(f => {
+    const b = document.createElement("button");
+    b.className = "soundFilterBtn";
+    b.textContent = f.label;
+    b.dataset.filter = f.id;
+    bindTap(b, () => {
+      soundFilter = f.id;
+      soundShownLimit = SOUND_RESULT_LIMIT; // 条件が変わったら表示数をリセット
+      renderSoundResults();
+    });
+    soundFiltersEl.appendChild(b);
+  });
+}
+
+function renderSoundResults() {
+  soundFiltersEl.querySelectorAll(".soundFilterBtn").forEach(b => {
+    b.classList.toggle("active", b.dataset.filter === soundFilter);
+  });
+  soundResultsEl.textContent = "";
+  const info = msg => {
+    const d = document.createElement("div");
+    d.className = "soundResultsInfo";
+    d.textContent = msg;
+    soundResultsEl.appendChild(d);
+  };
+  const all = listSounds();
+  if (!all || !all.length) { info("サウンド読込後に検索できます"); return; }
+  const q = soundSearchInput.value.trim().toLowerCase();
+  const filter = SOUND_FILTERS.find(f => f.id === soundFilter) || SOUND_FILTERS[0];
+  const hits = all.filter(o => filter.match(o) && (!q || o.name.toLowerCase().includes(q)));
+  if (!hits.length) { info("「" + q + "」に一致する音色はありません"); return; }
+  hits.slice(0, soundShownLimit).forEach(o => {
+    const b = document.createElement("button");
+    b.className = "soundResult";
+    b.textContent = o.name;
+    if (o.count > 1) {
+      const small = document.createElement("small");
+      small.textContent = "×" + o.count;
+      b.appendChild(small);
+    }
+    bindSoundChip(b, o.name);
+    soundResultsEl.appendChild(b);
+  });
+  if (hits.length > soundShownLimit) {
+    info(hits.length + "件中" + soundShownLimit + "件を表示");
+    const more = document.createElement("button");
+    more.className = "soundMore";
+    more.textContent = "さらに読み込む(残り" + (hits.length - soundShownLimit) + "件)";
+    bindTap(more, () => {
+      soundShownLimit += SOUND_RESULT_LIMIT;
+      renderSoundResults();
+    });
+    soundResultsEl.appendChild(more);
+  } else {
+    info(hits.length + "件");
+  }
+}
+renderSoundFilters();
+soundSearchInput.addEventListener("input", () => {
+  soundShownLimit = SOUND_RESULT_LIMIT; // 検索語が変わったら表示数をリセット
+  renderSoundResults();
+});
+
+function formatBytes(n) {
+  if (!(n > 0)) return "";
+  if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + "KB";
+  return (n / 1024 / 1024).toFixed(1) + "MB";
+}
+
+async function sampleCacheSize(cache, requests) {
+  let total = 0;
+  for (const req of requests) {
+    const res = await cache.match(req);
+    if (!res) continue;
+    const len = parseInt(res.headers.get("content-length") || "", 10);
+    if (len > 0) { total += len; continue; }
+    try { total += (await res.clone().blob()).size; } catch (e) {}
+  }
+  return total;
+}
+
+// manual=true(確認ボタン)のときは時刻とサイズを付けて、押した結果が必ず見えるようにする
+async function refreshSampleCacheStatus(manual) {
+  if (!("caches" in window)) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ非対応";
+    return;
+  }
+  if (manual) sampleCacheStatusEl.textContent = "確認中…";
+  try {
+    const cache = await caches.open(SAMPLE_CACHE_NAME);
+    const entries = await cache.keys();
+    if (!entries.length) {
+      // 初回訪問はService Workerがまだページを制御しておらず、再生してもキャッシュされない
+      const sw = navigator.serviceWorker;
+      sampleCacheStatusEl.textContent = (sw && !sw.controller)
+        ? "キャッシュ準備中(ページ再読み込み後に有効)"
+        : "サンプルキャッシュ 0件(再生すると自動保存)";
+      return;
+    }
+    let text = "サンプルキャッシュ " + entries.length + "件";
+    if (manual) {
+      const size = await sampleCacheSize(cache, entries);
+      if (size) text += " / " + formatBytes(size);
+      const d = new Date();
+      text += " (" +
+        String(d.getHours()).padStart(2, "0") + ":" +
+        String(d.getMinutes()).padStart(2, "0") + ":" +
+        String(d.getSeconds()).padStart(2, "0") + " 時点)";
+    }
+    sampleCacheStatusEl.textContent = text;
+  } catch (e) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ確認失敗";
+  }
+}
+
+async function clearSampleCache() {
+  if (!("caches" in window)) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ非対応";
+    return;
+  }
+  try {
+    await caches.delete(SAMPLE_CACHE_NAME);
+    await refreshSampleCacheStatus();
+    setStatus("サンプルキャッシュ削除", playing ? "playing" : "ready");
+  } catch (e) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ削除失敗";
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+bindTap(sampleCacheRefreshBtn, () => refreshSampleCacheStatus(true));
+bindTap(sampleCacheClearBtn, clearSampleCache);
+refreshSampleCacheStatus();
 
 const keysEl = document.getElementById("keys");
 KEYS.forEach(([text, label, caret]) => {
@@ -625,6 +1313,351 @@ function loadSnap(id) {
   setStatus(id + "を読み込み", playing ? "playing" : "ready");
 }
 renderSnaps();
+
+const songTitleInput = document.getElementById("songTitle");
+const songSaveBtn = document.getElementById("songSave");
+const songSaveAsBtn = document.getElementById("songSaveAs");
+const songExportBtn = document.getElementById("songExport");
+const songImportBtn = document.getElementById("songImport");
+const songShareBtn = document.getElementById("songShare");
+const songImportFile = document.getElementById("songImportFile");
+const songListEl = document.getElementById("songList");
+let currentSongId = "";
+let songLibrary = [];
+let pocketDbPromise = null;
+if (store) {
+  try { currentSongId = store.getItem(CURRENT_SONG_KEY) || ""; } catch (e) {}
+}
+
+function openPocketDB() {
+  if (!("indexedDB" in window)) return Promise.reject(new Error("IndexedDBが使えません"));
+  if (pocketDbPromise) return pocketDbPromise;
+  pocketDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SONG_STORE)) {
+        const store = db.createObjectStore(SONG_STORE, { keyPath: "id" });
+        store.createIndex("updatedAt", "updatedAt");
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("IndexedDBを開けません"));
+  });
+  return pocketDbPromise;
+}
+
+function withSongStore(mode, action) {
+  return openPocketDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(SONG_STORE, mode);
+    const store = tx.objectStore(SONG_STORE);
+    let req = null;
+    try { req = action(store); } catch (e) { reject(e); return; }
+    tx.oncomplete = () => resolve(req ? req.result : undefined);
+    tx.onerror = () => reject(tx.error || (req && req.error) || new Error("曲データベースエラー"));
+    tx.onabort = () => reject(tx.error || new Error("曲データベース処理を中断しました"));
+  }));
+}
+
+function getAllSongs() { return withSongStore("readonly", store => store.getAll()); }
+function getSong(id) { return withSongStore("readonly", store => store.get(id)); }
+function putSong(song) { return withSongStore("readwrite", store => store.put(song)); }
+function deleteSong(id) { return withSongStore("readwrite", store => store.delete(id)); }
+
+function makeSongId() {
+  return "song-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+function songTitleFromCode() {
+  const line = ed.value.split(/\n/).map(l => l.trim()).find(Boolean);
+  if (!line) return "Untitled";
+  return line.replace(/\s+/g, " ").slice(0, 40);
+}
+
+function formatSongDate(ms) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  const yy = String(d.getFullYear()).slice(2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return yy + "/" + mm + "/" + dd + " " + hh + ":" + mi;
+}
+
+function cloneSnaps() {
+  try { return JSON.parse(JSON.stringify(snaps || {})); } catch (e) { return {}; }
+}
+
+function cleanSnapshots(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+}
+
+function normalizeSongRecord(raw, fallbackId) {
+  if (!raw || typeof raw !== "object") return null;
+  const code = typeof raw.code === "string" ? raw.code : "";
+  if (!code.trim()) return null;
+  const now = Date.now();
+  const theme = ["", "greenText", "archBtw"].includes(raw.theme) ? raw.theme : "";
+  return {
+    id: String(raw.id || fallbackId || makeSongId()).slice(0, 90),
+    title: String(raw.title || "Untitled").trim().slice(0, 60) || "Untitled",
+    code,
+    theme,
+    snapshots: cleanSnapshots(raw.snapshots),
+    createdAt: Number(raw.createdAt) || now,
+    updatedAt: Number(raw.updatedAt) || now
+  };
+}
+
+function normalizeImportedSongs(payload) {
+  const list = Array.isArray(payload) ? payload :
+    Array.isArray(payload && payload.songs) ? payload.songs :
+    payload && payload.code ? [payload] : [];
+  return list.map(song => normalizeSongRecord(song)).filter(Boolean);
+}
+
+function exportFileName() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return "strudel-pocket-songs-" + y + m + day + "-" + h + min + ".json";
+}
+
+function downloadJson(payload, filename) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function encodeBase64Url(text) {
+  const bytes = new TextEncoder().encode(text);
+  const chunks = [];
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  const bin = chunks.join("");
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeBase64Url(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  const bin = atob(padded);
+  const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function currentSongDraft() {
+  return {
+    title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
+    code: ed.value,
+    theme: document.documentElement.dataset.theme || "",
+    snapshots: cloneSnaps(),
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+function setCurrentSong(id) {
+  currentSongId = id || "";
+  if (store) {
+    try {
+      if (currentSongId) store.setItem(CURRENT_SONG_KEY, currentSongId);
+      else store.removeItem(CURRENT_SONG_KEY);
+    } catch (e) {}
+  }
+  renderSongList();
+}
+
+function renderSongList(message) {
+  songListEl.textContent = "";
+  if (message) {
+    const empty = document.createElement("div");
+    empty.className = "songEmpty";
+    empty.textContent = message;
+    songListEl.appendChild(empty);
+    return;
+  }
+  if (!songLibrary.length) {
+    const empty = document.createElement("div");
+    empty.className = "songEmpty";
+    empty.textContent = "保存した曲はまだありません";
+    songListEl.appendChild(empty);
+    return;
+  }
+  songLibrary.forEach(song => {
+    const row = document.createElement("div");
+    row.className = "songRow";
+    row.classList.toggle("active", song.id === currentSongId);
+    row.innerHTML = '<div class="songMeta"><div class="songName"></div><div class="songInfo"></div></div>' +
+      '<button class="songLoad">読込</button><button class="songDelete">削除</button>';
+    row.querySelector(".songName").textContent = song.title || "Untitled";
+    const lines = (song.code || "").split(/\n/).length;
+    row.querySelector(".songInfo").textContent = formatSongDate(song.updatedAt) + " / " + lines + "行";
+    bindTap(row.querySelector(".songLoad"), () => loadSong(song));
+    bindTap(row.querySelector(".songDelete"), () => removeSong(song));
+    songListEl.appendChild(row);
+  });
+}
+
+async function refreshSongList() {
+  try {
+    songLibrary = (await getAllSongs())
+      .filter(song => song && song.id)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    renderSongList();
+    if (currentSongId && !songTitleInput.value.trim()) {
+      const current = songLibrary.find(song => song.id === currentSongId);
+      if (current) songTitleInput.value = current.title || "";
+    }
+  } catch (e) {
+    songLibrary = [];
+    renderSongList("この環境では曲保存を使えません");
+  }
+}
+
+async function saveCurrentSong(asNew) {
+  if (!ed.value.trim()) { setStatus("空の曲は保存しません", playing ? "playing" : "ready"); return; }
+  try {
+    const existing = (!asNew && currentSongId) ? await getSong(currentSongId).catch(() => null) : null;
+    const song = {
+      id: existing ? existing.id : makeSongId(),
+      title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
+      code: ed.value,
+      theme: document.documentElement.dataset.theme || "",
+      snapshots: cloneSnaps(),
+      createdAt: existing ? (existing.createdAt || Date.now()) : Date.now(),
+      updatedAt: Date.now()
+    };
+    await putSong(song);
+    songTitleInput.value = song.title;
+    setCurrentSong(song.id);
+    await refreshSongList();
+    setStatus("曲を保存", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("曲保存失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+async function loadSong(song) {
+  if (!song || !song.id) return;
+  setCurrentSong(song.id);
+  songTitleInput.value = song.title || "";
+  ed.value = song.code || "";
+  snaps = song.snapshots || {};
+  persistSnaps();
+  renderSnaps();
+  if (song.theme !== undefined) applyTheme(song.theme || "");
+  afterEdit();
+  updateScrubber();
+  closeDrawer();
+  ed.focus();
+  setStatus("曲を読み込み", playing ? "playing" : "ready");
+}
+
+async function removeSong(song) {
+  if (!song || !song.id) return;
+  if (!confirm("この曲を削除しますか？")) return;
+  try {
+    await deleteSong(song.id);
+    if (song.id === currentSongId) setCurrentSong("");
+    await refreshSongList();
+    setStatus("曲を削除", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("曲削除失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+async function exportSongs() {
+  try {
+    const songs = (await getAllSongs()).filter(song => song && song.code);
+    if (!songs.length) { setStatus("書き出す曲がありません", playing ? "playing" : "ready"); return; }
+    downloadJson({ version: 1, exportedAt: new Date().toISOString(), songs }, exportFileName());
+    setStatus(songs.length + "曲を書き出し", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("書き出し失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+async function importSongsFromFile(file) {
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    const imported = normalizeImportedSongs(payload);
+    if (!imported.length) { setStatus("読み込める曲がありません", playing ? "playing" : "ready"); return; }
+    for (const song of imported) await putSong(song);
+    await refreshSongList();
+    setStatus(imported.length + "曲を読み込み", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("読み込み失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  } finally {
+    songImportFile.value = "";
+  }
+}
+
+async function shareCurrentSong() {
+  if (!ed.value.trim()) { setStatus("空の曲はリンク化しません", playing ? "playing" : "ready"); return; }
+  let draft, hash, url;
+  try {
+    draft = currentSongDraft();
+    hash = "#song=" + encodeBase64Url(JSON.stringify(draft));
+    url = location.origin + location.pathname + hash;
+    if (url.length > 8000) throw new Error("共有リンクが長すぎます");
+  } catch (e) {
+    setStatus("リンク化できません", playing ? "playing" : "error");
+    showError("曲が長すぎるため共有リンクにできません。JSON書出を使ってください。");
+    return;
+  }
+  history.replaceState(null, "", hash);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: draft.title, text: "Strudel Pocket", url });
+      setStatus("共有を開きました", playing ? "playing" : "ready");
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    setStatus("リンクをコピー", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("URLにリンクを反映", playing ? "playing" : "ready");
+  }
+}
+
+function readSharedSong() {
+  if (!location.hash.startsWith("#song=")) return null;
+  try {
+    return normalizeSongRecord(JSON.parse(decodeBase64Url(location.hash.slice(6))), makeSongId());
+  } catch (e) {
+    showError("共有リンクを読み込めませんでした");
+    return null;
+  }
+}
+
+bindTap(songSaveBtn, () => saveCurrentSong(false));
+bindTap(songSaveAsBtn, () => saveCurrentSong(true));
+bindTap(songExportBtn, exportSongs);
+bindTap(songImportBtn, () => songImportFile.click());
+bindTap(songShareBtn, shareCurrentSong);
+songImportFile.addEventListener("change", () => importSongsFromFile(songImportFile.files && songImportFile.files[0]));
+refreshSongList();
 
 const cardsEl = document.getElementById("cards");
 PRESETS.forEach(p => {
@@ -901,12 +1934,20 @@ libScript.addEventListener("error", () => {
 window.addEventListener("load", () => {
   if (typeof initStrudel === "function") {
     try {
-      initStrudel({
-        prebake: () => samples("github:tidalcycles/dirt-samples")
+      const initPromise = initStrudel({
+        prebake: () => loadSounds()
       });
-      patchVisuals();
-      strudelReady = true;
-      setStatus("準備OK(初回再生時にサンプル取得)", "ready");
+      Promise.resolve(initPromise).then(() => {
+        patchVisuals();
+        strudelReady = true;
+        setStatus("準備OK(初回再生時にサンプル取得)", "ready");
+        renderSoundStatus();
+        renderSoundResults(); // 読込前に検索タブを開いていた場合の表示を更新
+      }).catch(e => {
+        renderSoundStatus("サウンド読込失敗");
+        setStatus("初期化エラー", "error");
+        showError(String(e && e.message ? e.message : e));
+      });
     } catch (e) {
       setStatus("初期化エラー", "error");
       showError(String(e));
@@ -1124,9 +2165,59 @@ if (window.visualViewport) {
    ドロワー・フォントサイズ・初期値
 ───────────────────────────────────── */
 const drawer = document.getElementById("drawer");
-document.getElementById("openDrawer").addEventListener("click", () => drawer.classList.add("show"));
+const sheet = document.getElementById("sheet");
+const sheetHead = document.getElementById("sheetHead");
+const sheetBody = document.getElementById("sheetBody");
+const sheetTabBtns = [...document.querySelectorAll(".sheetTab")];
+const drawerSecs = [...document.querySelectorAll(".dsec")];
+
+let drawerTab = "patterns";
+if (store) {
+  const savedTab = store.getItem(DRAWER_TAB_KEY);
+  if (drawerSecs.some(s => s.dataset.sec === savedTab)) drawerTab = savedTab;
+}
+
+function setDrawerTab(sec) {
+  if (!drawerSecs.some(s => s.dataset.sec === sec)) return;
+  drawerTab = sec;
+  if (store) { try { store.setItem(DRAWER_TAB_KEY, sec); } catch (e) {} }
+  sheetTabBtns.forEach(b => b.classList.toggle("active", b.dataset.sec === sec));
+  drawerSecs.forEach(s => s.classList.toggle("show", s.dataset.sec === sec));
+  if (sec === "sound") renderSoundResults();
+  sheetBody.scrollTop = 0;
+}
+sheetTabBtns.forEach(b => b.addEventListener("click", () => setDrawerTab(b.dataset.sec)));
+setDrawerTab(drawerTab);
+
+function openDrawer() {
+  drawer.classList.add("show");
+  refreshSampleCacheStatus(); // 開いた時点のキャッシュ状態に更新(古い件数を出しっぱなしにしない)
+}
 function closeDrawer() { drawer.classList.remove("show"); }
+document.getElementById("openDrawer").addEventListener("click", openDrawer);
+document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
 drawer.addEventListener("click", e => { if (e.target === drawer) closeDrawer(); });
+
+/* シート上部(つまみ)を下にスワイプで閉じる。タブボタン上は誤爆防止で対象外 */
+let sheetDragY = null;
+sheetHead.addEventListener("pointerdown", e => {
+  if (e.target.closest("button")) return;
+  sheetDragY = e.clientY;
+  try { sheetHead.setPointerCapture(e.pointerId); } catch (err) {}
+});
+sheetHead.addEventListener("pointermove", e => {
+  if (sheetDragY === null) return;
+  sheet.style.transform = "translateY(" + Math.max(0, e.clientY - sheetDragY) + "px)";
+});
+function endSheetDrag(e) {
+  if (sheetDragY === null) return;
+  const dy = e.clientY - sheetDragY;
+  sheetDragY = null;
+  sheet.style.transform = "";
+  if (dy > 70) closeDrawer();
+}
+sheetHead.addEventListener("pointerup", endSheetDrag);
+sheetHead.addEventListener("pointercancel", endSheetDrag);
 
 document.getElementById("clearBtn").addEventListener("click", () => {
   ed.value = "";
@@ -1164,10 +2255,23 @@ bindTap(document.getElementById("fontPlus"), () => {
 });
 applyFont();
 
-/* 起動時: 保存があれば復元、なければデモを入れる */
+/* 起動時: 共有リンク、保存済みコード、デモの順で復元 */
+const sharedSong = readSharedSong();
 let initial = null;
 if (store) { try { initial = store.getItem(SAVE_KEY); } catch (e) {} }
-ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
+if (sharedSong) {
+  setCurrentSong("");
+  songTitleInput.value = sharedSong.title || "";
+  snaps = cleanSnapshots(sharedSong.snapshots);
+  persistSnaps();
+  renderSnaps();
+  applyTheme(sharedSong.theme || "");
+  ed.value = sharedSong.code;
+  if (store) { try { store.setItem(SAVE_KEY, ed.value); } catch (e) {} }
+  history.replaceState(null, "", location.pathname + location.search);
+} else {
+  ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
+}
 hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
