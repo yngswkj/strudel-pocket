@@ -18,18 +18,23 @@
 - **キーボードショートカット**(PC): `Ctrl+Enter` 再生 / `Ctrl+.` 停止
 - **視覚化**: `.pianoroll()` や `.scope()` をコード下の専用エリアに表示(複数可)
 - **テーマ**: Pocket / greenText / archBtw(本家テーマの配色を移植)
-- **プリセットパターン集**と自動保存(localStorage)
+- **プリセットパターン集**と A/B/C/D スナップショット、自動保存(localStorage)
+- **PWA 対応**: ホーム画面追加用の manifest とアプリシェルキャッシュ
 
 ## フォルダ構成
 
 ```
 strudel-pocket/
-├── index.html   # アプリ本体(単一ファイル: HTML + CSS + JS)
+├── assets/
+│   └── icon.svg          # PWA/ブラウザ用アイコン
+├── index.html            # アプリ本体(HTML + CSS + JS)
+├── manifest.webmanifest  # PWA manifest
 ├── README.md
-└── LICENSE      # AGPL-3.0
+├── sw.js                 # Service Worker(アプリシェルのみキャッシュ)
+└── LICENSE               # AGPL-3.0
 ```
 
-今後 PWA 対応(manifest / Service Worker)やアイコン等を追加する場合は `assets/` を作成して配置する方針です。
+Service Worker はアプリのシェルだけをキャッシュします。Strudel 本体やサンプル音源は外部 CDN から取得するため、初回再生や音源取得にはネット接続が必要です。
 
 ## ライセンス
 

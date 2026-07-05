@@ -6,6 +6,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e1116">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Strudel Pocket">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <title>Strudel Pocket</title>
 <!-- Strudel core (web bundle). CDNから読み込むためオフラインでは動きません -->
 <script id="strudel-lib" src="https://unpkg.com/@strudel/web@1.3.0"></script>
@@ -36,7 +41,7 @@
      ヘッダーとドックは不透明なので、エディタ領域だけ透けて見える */
   #test-canvas{z-index:-1}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%}
+  html,body{height:100%;width:100%;overflow:hidden}
   body{
     margin:0;background:var(--bg);color:var(--text);
     font-family:var(--sans);
@@ -55,7 +60,7 @@
     padding:8px 12px calc(8px) 14px;
     padding-top:calc(8px + env(safe-area-inset-top));
     background:var(--surface);border-bottom:1px solid var(--line);
-    flex:0 0 auto;
+    flex:0 0 auto;min-width:0;overflow:hidden;
   }
   .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:0 0 auto;transition:background .3s}
   .dot.ready{background:var(--cool)}
@@ -90,6 +95,15 @@
   @media (max-width:430px){
     header{gap:8px;padding-left:12px;padding-right:10px}
     .brand small{display:none}
+    #status{display:none}
+    #openDrawer{width:68px;padding:0;font-size:12px}
+  }
+
+  @media (max-width:340px){
+    header{gap:6px;padding-left:8px;padding-right:8px}
+    .brand{font-size:13px}
+    #hscroll{width:70px}
+    #openDrawer{width:56px;font-size:11px}
   }
 
   /* ── エディタ ─────────────────────── */
@@ -97,10 +111,10 @@
     flex:1;width:100%;resize:none;border:none;outline:none;
     background:transparent;color:var(--text); /* 透明: 背面の視覚化キャンバスを見せる */
     font-family:var(--mono);font-size:16px;line-height:1.55;
-    padding:14px 14px 140px;
+    padding:14px 14px 178px;
     caret-color:var(--hot);
   }
-  #ed.withVisuals{padding-bottom:270px} /* 視覚化エリアの分だけ余白を増やす */
+  #ed.withVisuals{padding-bottom:308px} /* 視覚化エリアの分だけ余白を増やす */
   #ed::selection{background:rgba(63,214,192,.28)}
 
   /* ── 下部ドック ───────────────────── */
@@ -108,7 +122,7 @@
     position:fixed;left:0;right:0;bottom:0;z-index:20;
     background:var(--surface);border-top:1px solid var(--line);
     padding-bottom:env(safe-area-inset-bottom);
-    will-change:transform;
+    will-change:transform;max-width:100vw;overflow:hidden;
   }
   /* 視覚化エリア(.pianoroll()/.scope()の描画先。ドック上段=コードの下) */
   #visuals{display:none;gap:6px;padding:6px 10px 0;height:120px}
@@ -156,7 +170,21 @@
     box-shadow:inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 8px rgba(63,214,192,.4);
   }
 
-  /* 編集操作(カーソル移動・undo/redo) + 関数チップ */
+  /* 作曲モード + 編集操作(カーソル移動・undo/redo) + 関数チップ */
+  #modes{
+    display:flex;gap:6px;padding:8px 10px 0;overflow-x:auto;
+    scrollbar-width:none;
+  }
+  #modes::-webkit-scrollbar{display:none}
+  .modeBtn{
+    flex:1 0 54px;height:32px;border-radius:8px;
+    background:transparent;border:1px solid var(--line);color:var(--muted);
+    font-size:12px;font-weight:700;
+  }
+  .modeBtn.active{
+    background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool);
+  }
+  .modeBtn:active{background:var(--line)}
   #editrow{display:flex;gap:6px;align-items:stretch;padding:8px 10px 2px}
   .ekey{
     width:36px;border-radius:9px;flex:0 0 auto;
@@ -189,6 +217,8 @@
   }
   .key:active{background:var(--line)}
   @media (max-width:430px){
+    #modes{gap:5px;padding-left:8px;padding-right:8px}
+    .modeBtn{flex-basis:50px;font-size:11px}
     #keys{gap:4px;padding:6px 8px}
     .key{font-size:13px}
   }
@@ -204,6 +234,8 @@
 
   /* ヘッダーの小型ボタン(A−/A＋は文字幅差が出ないよう固定幅) */
   .hbtn.compact{width:38px;padding:0;font-size:12px;text-align:center}
+  @media (max-width:430px){#playBtn{width:60px}}
+  @media (max-width:340px){#playBtn{width:52px}}
 
   /* ── パターン集ドロワー ─────────────── */
   #drawer{
@@ -229,6 +261,24 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  #snapSlots{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;margin:0 2px 18px;
+  }
+  .snapSlot{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
+    background:var(--surface2);border:1px solid var(--line);border-radius:10px;
+    padding:8px;min-width:0;
+  }
+  .snapMeta{min-width:0}
+  .snapName{font-family:var(--mono);font-size:13px;font-weight:700}
+  .snapInfo{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .snapSave,.snapLoad{
+    height:32px;border-radius:8px;padding:0 8px;font-size:12px;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+  }
+  .snapSave{color:var(--cool)}
+  .snapLoad:disabled{opacity:.35}
   .card{
     background:var(--surface2);border:1px solid var(--line);border-radius:14px;
     padding:12px;margin-bottom:10px;
@@ -286,6 +336,7 @@
     <div id="scrubVal">0</div>
   </div>
 
+  <div id="modes"></div>
   <div id="editrow">
     <button class="ekey" id="caretL" aria-label="カーソルを左へ">←</button>
     <button class="ekey" id="caretR" aria-label="カーソルを右へ">→</button>
@@ -302,6 +353,8 @@
       <button class="themeBtn" data-theme="greenText">greenText</button>
       <button class="themeBtn" data-theme="archBtw">archBtw</button>
     </div>
+    <h2>スナップ</h2>
+    <div id="snapSlots"></div>
     <h2>パターン集</h2>
     <div id="cards"></div>
     <button class="danger" id="clearBtn">エディタを空にする</button>
@@ -348,6 +401,8 @@ const store = (() => {
 const SAVE_KEY = "strudel-pocket-code";
 const FONT_KEY = "strudel-pocket-font";
 const THEME_KEY = "strudel-pocket-theme";
+const MODE_KEY = "strudel-pocket-chip-mode";
+const SNAP_KEY = "strudel-pocket-snaps";
 
 /* ─────────────────────────────────────
    プリセット
@@ -384,28 +439,68 @@ const PRESETS = [
    チップ・記号キー定義
    [挿入文字列, 表示ラベル, カーソル位置(nullなら末尾)]
 ───────────────────────────────────── */
-const CHIPS = [
-  ['s("")',                 's("…")',        3],
-  ['note("")',              'note',          6],
-  ['n("")',                 'n',             3],
-  ['.fast(2)',              '.fast',         6],
-  ['.slow(2)',              '.slow',         6],
-  ['.rev()',                '.rev',          null],
-  ['.jux(rev)',             '.jux(rev)',     null],
-  ['.lpf(800)',             '.lpf',          5],
-  ['.hpf(400)',             '.hpf',          5],
-  ['.gain(0.8)',            '.gain',         6],
-  ['.room(0.5)',            '.room',         6],
-  ['.delay(0.3)',           '.delay',        7],
-  ['.pan(sine)',            '.pan(sine)',    null],
-  ['.speed(1.5)',           '.speed',        7],
-  ['.crush(4)',             '.crush',        7],
-  ['.scale("C:minor")',     '.scale',        8],
-  ['.sometimes(x=>x.rev())','.sometimes',    null],
-  ['.pianoroll()',          '.pianoroll',    null],
-  ['.scope()',              '.scope',        null],
-  ['setcpm(30)',            'setcpm',        7],
-  ['stack(\n  \n)',         'stack',         9],
+const CHIP_MODES = [
+  {
+    id: "core", label: "基本", chips: [
+      ['s("")',                 's("…")',        3],
+      ['note("")',              'note',          6],
+      ['n("")',                 'n',             3],
+      ['setcpm(30)',            'setcpm',        7],
+      ['stack(\n  \n)',         'stack',         9],
+      ['.gain(0.8)',            '.gain',         6],
+      ['.lpf(800)',             '.lpf',          5],
+      ['.room(0.5)',            '.room',         6],
+    ]
+  },
+  {
+    id: "drums", label: "ドラム", chips: [
+      ['s("bd*4")',             'bd*4',          null],
+      ['s("~ sd ~ sd")',        'snare',         null],
+      ['s("hh*8")',             'hh*8',          null],
+      ['s("bd ~ [~ bd] ~")',    'kick+',         null],
+      ['s("~ sd")',             '~ sd',          null],
+      ['s("bd, ~ sd, hh*8")',   'kit',           null],
+      ['.bank("RolandTR909")',  '909',           null],
+      ['.speed(1.5)',           '.speed',        7],
+    ]
+  },
+  {
+    id: "pitch", label: "音程", chips: [
+      ['note("")',              'note',          6],
+      ['n("")',                 'n',             3],
+      ['.scale("C4:minor")',    'minor',         8],
+      ['.scale("C4:minor:pentatonic")', 'penta', 8],
+      ['.s("sawtooth")',        'saw',           null],
+      ['.s("triangle")',        'tri',           null],
+      ['.release(.2)',          'release',       9],
+      ['.lpf(800)',             '.lpf',          5],
+    ]
+  },
+  {
+    id: "tone", label: "音色", chips: [
+      ['.lpf(800)',             '.lpf',          5],
+      ['.hpf(400)',             '.hpf',          5],
+      ['.lpq(8)',               '.lpq',          5],
+      ['.lpenv(3)',             '.lpenv',        7],
+      ['.gain(0.8)',            '.gain',         6],
+      ['.room(0.5)',            '.room',         6],
+      ['.delay(0.3)',           '.delay',        7],
+      ['.pan(sine)',            '.pan',          null],
+      ['.crush(4)',             '.crush',        7],
+    ]
+  },
+  {
+    id: "form", label: "構成", chips: [
+      ['.fast(2)',              '.fast',         6],
+      ['.slow(2)',              '.slow',         6],
+      ['.rev()',                '.rev',          null],
+      ['.jux(rev)',             '.jux',          null],
+      ['.sometimes(x=>x.rev())','.sometimes',    null],
+      ['.pianoroll()',          '.pianoroll',    null],
+      ['.scope()',              '.scope',        null],
+      ['.spectrum()',           '.spectrum',     null],
+    ]
+  },
 ];
 
 const KEYS = [
@@ -425,14 +520,47 @@ const KEYS = [
 /* ─────────────────────────────────────
    UI生成
 ───────────────────────────────────── */
+const modesEl = document.getElementById("modes");
 const chipsEl = document.getElementById("chips");
-CHIPS.forEach(([text, label, caret]) => {
-  const b = document.createElement("button");
-  b.className = "chip";
-  b.textContent = label;
-  bindInsert(b, text, caret);
-  chipsEl.appendChild(b);
-});
+let chipMode = CHIP_MODES[0].id;
+if (store) {
+  const savedMode = store.getItem(MODE_KEY);
+  if (CHIP_MODES.some(m => m.id === savedMode)) chipMode = savedMode;
+}
+
+function renderChipModes() {
+  modesEl.textContent = "";
+  CHIP_MODES.forEach(mode => {
+    const b = document.createElement("button");
+    b.className = "modeBtn";
+    b.textContent = mode.label;
+    b.dataset.mode = mode.id;
+    bindTap(b, () => setChipMode(mode.id));
+    modesEl.appendChild(b);
+  });
+}
+
+function setChipMode(modeId) {
+  if (!CHIP_MODES.some(m => m.id === modeId)) return;
+  chipMode = modeId;
+  if (store) { try { store.setItem(MODE_KEY, modeId); } catch (e) {} }
+  renderChips();
+}
+
+function renderChips() {
+  chipsEl.textContent = "";
+  modesEl.querySelectorAll(".modeBtn").forEach(b => b.classList.toggle("active", b.dataset.mode === chipMode));
+  const mode = CHIP_MODES.find(m => m.id === chipMode) || CHIP_MODES[0];
+  mode.chips.forEach(([text, label, caret]) => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.textContent = label;
+    bindInsert(b, text, caret);
+    chipsEl.appendChild(b);
+  });
+}
+renderChipModes();
+renderChips();
 
 const keysEl = document.getElementById("keys");
 KEYS.forEach(([text, label, caret]) => {
@@ -442,6 +570,61 @@ KEYS.forEach(([text, label, caret]) => {
   bindInsert(b, text, caret);
   keysEl.appendChild(b);
 });
+
+const SNAP_IDS = ["A", "B", "C", "D"];
+const snapSlotsEl = document.getElementById("snapSlots");
+let snaps = {};
+if (store) {
+  try { snaps = JSON.parse(store.getItem(SNAP_KEY) || "{}") || {}; } catch (e) { snaps = {}; }
+}
+
+function snapInfo(snap) {
+  if (!snap || !snap.code) return "空";
+  const lines = snap.code.split(/\n/).length;
+  return lines + "行";
+}
+
+function persistSnaps() {
+  if (!store) return;
+  try { store.setItem(SNAP_KEY, JSON.stringify(snaps)); } catch (e) {}
+}
+
+function renderSnaps() {
+  snapSlotsEl.textContent = "";
+  SNAP_IDS.forEach(id => {
+    const slot = document.createElement("div");
+    slot.className = "snapSlot";
+    slot.innerHTML = '<div class="snapMeta"><div class="snapName"></div><div class="snapInfo"></div></div>' +
+      '<button class="snapSave">保存</button><button class="snapLoad">読込</button>';
+    slot.querySelector(".snapName").textContent = id;
+    slot.querySelector(".snapInfo").textContent = snapInfo(snaps[id]);
+    const loadBtn = slot.querySelector(".snapLoad");
+    loadBtn.disabled = !(snaps[id] && snaps[id].code);
+    slot.querySelector(".snapSave").addEventListener("click", () => saveSnap(id));
+    loadBtn.addEventListener("click", () => loadSnap(id));
+    snapSlotsEl.appendChild(slot);
+  });
+}
+
+function saveSnap(id) {
+  if (!ed.value.trim()) { setStatus(id + "は空のため保存なし", "ready"); return; }
+  snaps[id] = { code: ed.value, at: Date.now() };
+  persistSnaps();
+  renderSnaps();
+  setStatus(id + "に保存", playing ? "playing" : "ready");
+}
+
+function loadSnap(id) {
+  const snap = snaps[id];
+  if (!snap || !snap.code) { setStatus(id + "は空", playing ? "playing" : "ready"); return; }
+  ed.value = snap.code;
+  afterEdit();
+  updateScrubber();
+  closeDrawer();
+  ed.focus();
+  setStatus(id + "を読み込み", playing ? "playing" : "ready");
+}
+renderSnaps();
 
 const cardsEl = document.getElementById("cards");
 PRESETS.forEach(p => {
@@ -733,6 +916,12 @@ window.addEventListener("load", () => {
     showError("Strudel本体を読み込めませんでした。このファイルをブラウザで直接開くか、Vercel等でホストしてください。");
   }
 });
+
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 
 let evalSeq = 0;              // 停止・再評価のたびに進める世代番号
 let wantPlaying = false;      // ユーザーが望んでいる状態(true=再生)
