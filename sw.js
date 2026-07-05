@@ -55,7 +55,7 @@ function cacheFirst(request, cacheName) {
     cache.match(request).then(cached => {
       if (cached) return cached;
       return fetch(request).then(response => {
-        if (response && (response.ok || response.type === "opaque")) {
+        if (response && response.status !== 206 && (response.ok || response.type === "opaque")) {
           cache.put(request, response.clone()).catch(() => {});
         }
         return response;
