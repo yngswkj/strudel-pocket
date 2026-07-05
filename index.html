@@ -2012,6 +2012,7 @@ ed.addEventListener("keydown", e => {
 function setAutoUpdate(enabled) {
   autoUpdateEnabled = enabled;
   autoUpdateToggle.checked = enabled;
+  if (!enabled) clearTimeout(evalTimer);
   if (store) { try { store.setItem(AUTO_UPDATE_KEY, enabled ? "1" : "0"); } catch (e) {} }
   setStatus(enabled ? "自動更新オン" : "自動更新オフ", playing ? "playing" : "ready");
 }
@@ -2039,6 +2040,7 @@ function updateBpmControls(value) {
   bpmSlider.value = String(bpm);
   bpmValueEl.textContent = String(bpm);
   if (store) { try { store.setItem(BPM_KEY, String(bpm)); } catch (e) {} }
+  if (playing && activeNoteTimer) startActiveNoteOverlay();
 }
 
 function applyBpmToCode() {
@@ -2088,6 +2090,7 @@ bpmSlider.addEventListener("input", () => {
 ───────────────────────────────────── */
 let saveTimer = null, evalTimer = null;
 function afterEdit() {
+  syncBpmFromCode();
   if (store) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -2439,7 +2442,6 @@ function collectActiveNoteRanges() {
     const tokenRe = /[A-Za-z0-9_#:+.-]+/g;
     let token;
     while ((token = tokenRe.exec(call[1]))) {
-      if (token[0] === "~") continue;
       ranges.push({ start: base + token.index, end: base + token.index + token[0].length });
     }
   }
@@ -2449,6 +2451,7 @@ function collectActiveNoteRanges() {
 function makeEditorRectMirror() {
   const cs = getComputedStyle(ed);
   const mirror = document.createElement("div");
+  mirror.setAttribute("aria-hidden", "true");
   mirror.textContent = ed.value || "\n";
   const r = ed.getBoundingClientRect();
   Object.assign(mirror.style, {
@@ -2457,6 +2460,7 @@ function makeEditorRectMirror() {
     boxSizing: "border-box", font: cs.font, lineHeight: cs.lineHeight,
     letterSpacing: cs.letterSpacing, padding: cs.padding, border: "none",
     whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "auto",
+    pointerEvents: "none",
     color: "transparent", background: "transparent", opacity: "0.01"
   });
   mirror.scrollTop = ed.scrollTop;
@@ -2531,7 +2535,9 @@ function patchVisuals() {
     if (!orig) return;
     P[name] = function (opts = {}) {
       const ctx = allocVisualCanvas();
-      return orig.call(this, { ...themedVisualOptions(opts), ctx, id: 1 + visCount, ...opts });
+      const visualOpts = themedVisualOptions(opts);
+      const id = opts.id !== undefined ? opts.id : 1 + visCount;
+      return orig.call(this, { ...visualOpts, id, ctx });
     };
   });
 }
@@ -2621,7 +2627,7 @@ function releaseWakeLock() {
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden" && playing && !backgroundPlayEnabled) {
+  if (document.visibilityState === "hidden" && (playing || wantPlaying) && !backgroundPlayEnabled) {
     stopAll("非アクティブで停止");
   } else if (document.visibilityState === "visible" && playing) {
     acquireWakeLock();
