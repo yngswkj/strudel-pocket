@@ -25,6 +25,8 @@
     --hot:#ff7a45;   /* 再生・アクション */
     --cool:#3fd6c0;  /* フェーダー・準備OK */
     --warn:#ff5470;  /* エラー */
+    --visual-bg:rgba(0,0,0,.3);
+    --visual-glow:rgba(63,214,192,.22);
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
   }
@@ -32,10 +34,12 @@
   :root[data-theme="greenText"]{
     --bg:#000000;--surface:#0a0f08;--surface2:#111a0d;--line:#1e2b18;
     --text:#56bd2a;--muted:#54636d;--hot:#8ed675;--cool:#56bd2a;
+    --visual-bg:rgba(3,18,0,.7);--visual-glow:rgba(86,189,42,.28);
   }
   :root[data-theme="archBtw"]{
     --bg:#000000;--surface:#050d13;--surface2:#0a161e;--line:#12293a;
     --text:#52d0fa;--muted:rgba(113,208,250,.4);--hot:#52d0fa;--cool:#52d0fa;
+    --visual-bg:rgba(0,14,24,.72);--visual-glow:rgba(82,208,250,.28);
   }
   /* Strudelの視覚化(.pianoroll()等)が作る全画面キャンバスをエディタの背面に敷く。
      ヘッダーとドックは不透明なので、エディタ領域だけ透けて見える */
@@ -129,7 +133,17 @@
   #visuals.show{display:flex}
   #visuals canvas{
     flex:1;min-width:0;height:100%;border-radius:10px;
-    background:rgba(0,0,0,.3);border:1px solid var(--line);
+    background:
+      linear-gradient(180deg,var(--visual-glow),transparent 42%),
+      var(--visual-bg);
+    border:1px solid var(--cool);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.02), 0 0 14px var(--visual-glow);
+  }
+  #activeNoteOverlay{position:fixed;inset:0;z-index:9;pointer-events:none;overflow:hidden}
+  .activeNoteBox{
+    position:fixed;border:1.5px solid var(--hot);border-radius:4px;
+    background:color-mix(in srgb,var(--hot) 14%,transparent);
+    box-shadow:0 0 8px var(--hot);
   }
 
   #errbar{
@@ -281,6 +295,24 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  #playSettings{display:grid;gap:10px;margin:0 2px 18px}
+  .settingToggle{
+    display:flex;align-items:center;gap:10px;min-height:42px;
+    padding:0 12px;border-radius:10px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-size:13px;font-weight:700;
+  }
+  .settingToggle input{width:20px;height:20px;accent-color:var(--cool)}
+  .settingRange{
+    display:grid;gap:8px;padding:10px 12px;border-radius:10px;
+    background:var(--surface2);border:1px solid var(--line);
+  }
+  .settingRange label{
+    display:flex;justify-content:space-between;gap:12px;
+    font-size:13px;font-weight:700;color:var(--text);
+  }
+  .settingRange span{font-family:var(--mono);color:var(--cool)}
+  .settingRange input{width:100%;accent-color:var(--cool)}
   #soundStatus{font-size:12px;color:var(--muted);margin:0 4px 10px}
   /* サウンド検索(スマホ前提: 大きめのタップ領域と横スクロールのフィルタ) */
   #soundSearch{
@@ -470,6 +502,7 @@
     <button class="hbtn compact" id="redoBtn" aria-label="やり直す" disabled>↷</button>
     <button class="hbtn compact" id="fontMinus" aria-label="文字を小さく">A−</button>
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
+    <button class="hbtn compact" id="updateBtn" aria-label="コードを再評価">↻</button>
   </div>
   <button class="hbtn" id="openDrawer">設定</button>
   <button id="playBtn" aria-label="再生">▶</button>
@@ -478,6 +511,7 @@
 <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
   autocomplete="off" inputmode="email" lang="en"
   placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+<div id="activeNoteOverlay" aria-hidden="true"></div>
 
 <div id="dock">
   <div id="visuals"></div>
@@ -557,6 +591,21 @@
           <button class="themeBtn" data-theme="greenText">greenText</button>
           <button class="themeBtn" data-theme="archBtw">archBtw</button>
         </div>
+        <h2>再生設定</h2>
+        <div id="playSettings">
+          <label class="settingToggle">
+            <input id="autoUpdateToggle" type="checkbox">
+            <span>編集中に自動更新</span>
+          </label>
+          <label class="settingToggle">
+            <input id="backgroundPlayToggle" type="checkbox">
+            <span>バックグラウンド再生</span>
+          </label>
+          <div class="settingRange">
+            <label for="bpmSlider">BPM <span id="bpmValue">120</span></label>
+            <input id="bpmSlider" type="range" min="40" max="220" step="1">
+          </div>
+        </div>
       </section>
     </div>
   </div>
@@ -584,10 +633,16 @@ const scrub = document.getElementById("scrub");
 const fader = document.getElementById("fader");
 const scrubVal = document.getElementById("scrubVal");
 const playBtn = document.getElementById("playBtn");
+const updateBtn = document.getElementById("updateBtn");
+const activeNoteOverlay = document.getElementById("activeNoteOverlay");
 const soundPasteBar = document.getElementById("soundPasteBar");
 const soundPasteText = document.getElementById("soundPasteText");
 const soundPasteBtn = document.getElementById("soundPasteBtn");
 const soundPasteClear = document.getElementById("soundPasteClear");
+const autoUpdateToggle = document.getElementById("autoUpdateToggle");
+const backgroundPlayToggle = document.getElementById("backgroundPlayToggle");
+const bpmSlider = document.getElementById("bpmSlider");
+const bpmValueEl = document.getElementById("bpmValue");
 
 /* ─────────────────────────────────────
    状態
@@ -598,6 +653,9 @@ let wakeLock = null;
 let scrubbing = false;
 let tok = null; // {start,end,hasDot}
 let copiedSoundName = "";
+let autoUpdateEnabled = true;
+let backgroundPlayEnabled = false;
+let bpm = 120;
 
 /* ─────────────────────────────────────
    ストレージ(使えない環境ではメモリのみ)
@@ -617,10 +675,18 @@ const MODE_KEY = "strudel-pocket-chip-mode";
 const DRAWER_TAB_KEY = "strudel-pocket-drawer-tab";
 const SNAP_KEY = "strudel-pocket-snaps";
 const CURRENT_SONG_KEY = "strudel-pocket-current-song";
+const AUTO_UPDATE_KEY = "strudel-pocket-auto-update";
+const BACKGROUND_PLAY_KEY = "strudel-pocket-background-play";
+const BPM_KEY = "strudel-pocket-bpm";
 const DB_NAME = "strudel-pocket-db";
 const DB_VERSION = 1;
 const SONG_STORE = "songs";
 const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
+
+autoUpdateEnabled = store ? store.getItem(AUTO_UPDATE_KEY) !== "0" : true;
+backgroundPlayEnabled = store ? store.getItem(BACKGROUND_PLAY_KEY) === "1" : false;
+bpm = store ? parseInt(store.getItem(BPM_KEY) || "120", 10) : 120;
+if (!Number.isFinite(bpm) || bpm < 40 || bpm > 220) bpm = 120;
 
 /* ─────────────────────────────────────
    プリセット
@@ -663,6 +729,7 @@ const CHIP_MODES = [
       ['s("")',                 's("…")',        3],
       ['note("")',              'note',          6],
       ['n("")',                 'n',             3],
+      ['$:  ',                  '$:',            4],
       ['setcpm(30)',            'setcpm',        7],
       ['stack(\n  \n)',         'stack',         9],
       ['.gain(0.8)',            '.gain',         6],
@@ -1339,6 +1406,12 @@ KEYS.forEach(([text, label, caret]) => {
   bindInsert(b, text, caret);
   keysEl.appendChild(b);
 });
+const commentKey = document.createElement("button");
+commentKey.className = "key";
+commentKey.textContent = "//";
+commentKey.setAttribute("aria-label", "行をコメントアウト");
+bindTap(commentKey, toggleLineComment);
+keysEl.appendChild(commentKey);
 
 const SNAP_IDS = ["A", "B", "C", "D"];
 const snapSlotsEl = document.getElementById("snapSlots");
@@ -1807,11 +1880,217 @@ function insertAtCursor(text, caret) {
   updateScrubber();
 }
 
+function lineRangeForSelection() {
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const effectiveEnd = e > s && text[e - 1] === "\n" ? e - 1 : e;
+  const lineStart = text.lastIndexOf("\n", Math.max(0, s - 1)) + 1;
+  const nextBreak = text.indexOf("\n", effectiveEnd);
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
+  return { lineStart, lineEnd, hasSelection: e !== s };
+}
+
+function toggleLineComment() {
+  ed.focus();
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const { lineStart, lineEnd, hasSelection } = lineRangeForSelection();
+  const block = text.slice(lineStart, lineEnd);
+  if (!block) return;
+  const lines = block.split("\n");
+  const filled = lines.filter(line => line.trim());
+  const uncomment = filled.length > 0 && filled.every(line => /^\s*\/\//.test(line));
+  const newLines = lines.map(line => {
+    if (!line.trim()) return line;
+    if (uncomment) return line.replace(/^(\s*)\/\//, "$1");
+    return line.replace(/^(\s*)/, "$1//");
+  });
+  const newBlock = newLines.join("\n");
+  ed.setRangeText(newBlock, lineStart, lineEnd, "select");
+  if (hasSelection) {
+    ed.selectionStart = lineStart;
+    ed.selectionEnd = lineStart + newBlock.length;
+  } else {
+    const oldLine = block;
+    const indent = (oldLine.match(/^\s*/) || [""])[0].length;
+    const pivot = lineStart + indent;
+    const delta = uncomment ? -2 : 2;
+    const next = s > pivot ? s + delta : s;
+    ed.selectionStart = ed.selectionEnd = Math.max(lineStart, Math.min(ed.value.length, next));
+  }
+  afterEdit();
+  updateScrubber();
+}
+
+function indentSelection(direction) {
+  ed.focus();
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  if (s === e && direction > 0) {
+    insertAtCursor("  ", null);
+    return;
+  }
+  const effectiveEnd = e > s && text[e - 1] === "\n" ? e - 1 : e;
+  const lineStart = text.lastIndexOf("\n", Math.max(0, s - 1)) + 1;
+  const nextBreak = text.indexOf("\n", effectiveEnd);
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
+  const lines = text.slice(lineStart, lineEnd).split("\n");
+  let startDelta = 0, endDelta = 0;
+  const nextLines = lines.map((line, index) => {
+    if (direction > 0) {
+      if (lineStart + lines.slice(0, index).join("\n").length + (index ? 1 : 0) <= s) startDelta += 2;
+      endDelta += 2;
+      return "  " + line;
+    }
+    if (line.startsWith("  ")) {
+      if (lineStart + lines.slice(0, index).join("\n").length + (index ? 1 : 0) < s) startDelta -= 2;
+      endDelta -= 2;
+      return line.slice(2);
+    }
+    if (line.startsWith(" ")) {
+      if (lineStart + lines.slice(0, index).join("\n").length + (index ? 1 : 0) < s) startDelta -= 1;
+      endDelta -= 1;
+      return line.slice(1);
+    }
+    return line;
+  });
+  const nextBlock = nextLines.join("\n");
+  ed.setRangeText(nextBlock, lineStart, lineEnd, "select");
+  ed.selectionStart = Math.max(lineStart, s + startDelta);
+  ed.selectionEnd = Math.max(ed.selectionStart, e + endDelta);
+  afterEdit();
+  updateScrubber();
+}
+
+function autoIndentNewline() {
+  const s = ed.selectionStart;
+  const lineStart = ed.value.lastIndexOf("\n", Math.max(0, s - 1)) + 1;
+  const line = ed.value.slice(lineStart, s);
+  const indent = (line.match(/^\s*/) || [""])[0];
+  insertAtCursor("\n" + indent + "  ", null);
+}
+
+function autoPairQuote() {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const next = ed.value[e];
+  if (s !== e) {
+    const selected = ed.value.slice(s, e);
+    ed.setRangeText('"' + selected + '"', s, e, "end");
+    ed.selectionStart = s + 1;
+    ed.selectionEnd = e + 1;
+    afterEdit();
+    updateScrubber();
+    return;
+  }
+  if (next === '"') {
+    ed.selectionStart = ed.selectionEnd = e + 1;
+    updateScrubber();
+    return;
+  }
+  insertAtCursor('""', 1);
+}
+
+ed.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "/") {
+    e.preventDefault();
+    toggleLineComment();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Tab") {
+    e.preventDefault();
+    indentSelection(e.shiftKey ? -1 : 1);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    autoIndentNewline();
+  } else if (e.key === '"') {
+    e.preventDefault();
+    autoPairQuote();
+  }
+});
+
+function setAutoUpdate(enabled) {
+  autoUpdateEnabled = enabled;
+  autoUpdateToggle.checked = enabled;
+  if (!enabled) clearTimeout(evalTimer);
+  if (store) { try { store.setItem(AUTO_UPDATE_KEY, enabled ? "1" : "0"); } catch (e) {} }
+  setStatus(enabled ? "自動更新オン" : "自動更新オフ", playing ? "playing" : "ready");
+}
+
+function setBackgroundPlay(enabled) {
+  backgroundPlayEnabled = enabled;
+  backgroundPlayToggle.checked = enabled;
+  if (store) { try { store.setItem(BACKGROUND_PLAY_KEY, enabled ? "1" : "0"); } catch (e) {} }
+  setStatus(enabled ? "バックグラウンド再生オン" : "非アクティブ時に停止", playing ? "playing" : "ready");
+}
+
+function formatCpmFromBpm(value) {
+  return String(parseFloat((value / 4).toFixed(2)));
+}
+
+function readBpmFromCode() {
+  const m = ed.value.match(/setcpm\(\s*([0-9]+(?:\.[0-9]+)?)\s*\)/);
+  if (!m) return null;
+  const value = Math.round(parseFloat(m[1]) * 4);
+  return Number.isFinite(value) ? Math.max(40, Math.min(220, value)) : null;
+}
+
+function updateBpmControls(value) {
+  bpm = Math.max(40, Math.min(220, Math.round(value)));
+  bpmSlider.value = String(bpm);
+  bpmValueEl.textContent = String(bpm);
+  if (store) { try { store.setItem(BPM_KEY, String(bpm)); } catch (e) {} }
+  if (playing && activeNoteTimer) startActiveNoteOverlay();
+}
+
+function applyBpmToCode() {
+  const line = "setcpm(" + formatCpmFromBpm(bpm) + ")";
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const re = /^(\s*)setcpm\(\s*[0-9]+(?:\.[0-9]+)?\s*\)/m;
+  const m = text.match(re);
+  if (m) {
+    const start = m.index || 0;
+    const next = text.slice(0, start) + m[1] + line + text.slice(start + m[0].length);
+    const delta = next.length - text.length;
+    ed.value = next;
+    if (s >= start + m[0].length) {
+      ed.selectionStart = s + delta;
+      ed.selectionEnd = e + delta;
+    } else {
+      ed.selectionStart = s;
+      ed.selectionEnd = e;
+    }
+  } else {
+    const prefix = line + (text.trim() ? "\n" : "");
+    ed.value = prefix + text;
+    ed.selectionStart = s + prefix.length;
+    ed.selectionEnd = e + prefix.length;
+  }
+  afterEdit();
+  updateScrubber();
+}
+
+function syncBpmFromCode() {
+  updateBpmControls(readBpmFromCode() || bpm);
+}
+
+autoUpdateToggle.checked = autoUpdateEnabled;
+backgroundPlayToggle.checked = backgroundPlayEnabled;
+updateBpmControls(bpm);
+autoUpdateToggle.addEventListener("change", () => setAutoUpdate(autoUpdateToggle.checked));
+backgroundPlayToggle.addEventListener("change", () => setBackgroundPlay(backgroundPlayToggle.checked));
+bpmSlider.addEventListener("input", () => {
+  updateBpmControls(parseInt(bpmSlider.value, 10));
+  applyBpmToCode();
+});
+
 /* ─────────────────────────────────────
    編集後の共通処理(自動保存 + 再生中なら再評価)
 ───────────────────────────────────── */
 let saveTimer = null, evalTimer = null;
 function afterEdit() {
+  syncBpmFromCode();
   if (store) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -1821,7 +2100,11 @@ function afterEdit() {
   recordHistory();
   if (playing) {
     clearTimeout(evalTimer);
-    evalTimer = setTimeout(runEval, 300);
+    if (autoUpdateEnabled) {
+      evalTimer = setTimeout(runEval, 300);
+    } else {
+      setStatus("編集済み(更新待ち)", "playing");
+    }
   }
 }
 ed.addEventListener("input", afterEdit);
@@ -1884,6 +2167,7 @@ document.getElementById("caretR").addEventListener("pointerdown", e => {
 // ヘッダーの#hscroll内にあるためスワイプ(A−/A＋を出す操作)と区別する
 bindTap(undoBtn, () => applyHistory(-1));
 bindTap(redoBtn, () => applyHistory(1));
+bindTap(updateBtn, () => runEval());
 
 // PCでは縦ホイールでも#hscrollを横に送れるようにする
 document.getElementById("hscroll").addEventListener("wheel", e => {
@@ -1997,6 +2281,9 @@ document.addEventListener("selectionchange", () => {
 });
 ed.addEventListener("pointerup", updateScrubber);
 ed.addEventListener("keyup", updateScrubber);
+ed.addEventListener("scroll", () => {
+  if (playing) drawActiveNoteOverlay();
+});
 ed.addEventListener("blur", () => {
   // フェーダー操作へ移った場合は残す
   setTimeout(() => {
@@ -2103,6 +2390,22 @@ function setVisualVisible(on) {
 const visualsEl = document.getElementById("visuals");
 const visPool = [];  // 生成済みキャンバス(評価をまたいで再利用)
 let visCount = 0;    // 今回の評価で割り当てた数
+let activeNoteTimer = null;
+let activeNoteStep = 0;
+
+function themeColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function themedVisualOptions(opts = {}) {
+  return {
+    color: themeColor("--cool"),
+    stroke: themeColor("--cool"),
+    fill: themeColor("--hot"),
+    background: themeColor("--bg"),
+    ...opts
+  };
+}
 
 function allocVisualCanvas() {
   let c = visPool[visCount];
@@ -2111,6 +2414,7 @@ function allocVisualCanvas() {
     visualsEl.appendChild(c);
     visPool.push(c);
   }
+  c.dataset.theme = document.documentElement.dataset.theme || "pocket";
   visCount++;
   visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
   layoutVisualCanvases();
@@ -2126,6 +2430,85 @@ function layoutVisualCanvases() {
   });
 }
 window.addEventListener("resize", () => setTimeout(layoutVisualCanvases, 250));
+
+function collectActiveNoteRanges() {
+  const ranges = [];
+  const text = ed.value;
+  const callRe = /\b(?:s|note|n)\(\s*"([^"]*)"/g;
+  let call;
+  while ((call = callRe.exec(text))) {
+    const quoteOffset = call[0].indexOf('"') + 1;
+    const base = call.index + quoteOffset;
+    const tokenRe = /[A-Za-z0-9_#:+.-]+/g;
+    let token;
+    while ((token = tokenRe.exec(call[1]))) {
+      ranges.push({ start: base + token.index, end: base + token.index + token[0].length });
+    }
+  }
+  return ranges;
+}
+
+function makeEditorRectMirror() {
+  const cs = getComputedStyle(ed);
+  const mirror = document.createElement("div");
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.textContent = ed.value || "\n";
+  const r = ed.getBoundingClientRect();
+  Object.assign(mirror.style, {
+    position: "fixed", left: r.left + "px", top: r.top + "px",
+    width: r.width + "px", height: r.height + "px", zIndex: "-1",
+    boxSizing: "border-box", font: cs.font, lineHeight: cs.lineHeight,
+    letterSpacing: cs.letterSpacing, padding: cs.padding, border: "none",
+    whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "auto",
+    pointerEvents: "none",
+    color: "transparent", background: "transparent", opacity: "0.01"
+  });
+  mirror.scrollTop = ed.scrollTop;
+  mirror.scrollLeft = ed.scrollLeft;
+  document.body.appendChild(mirror);
+  return mirror;
+}
+
+function drawActiveNoteOverlay() {
+  activeNoteOverlay.textContent = "";
+  if (!playing || document.activeElement !== ed && !ed.value) return;
+  const ranges = collectActiveNoteRanges();
+  if (!ranges.length) return;
+  const target = ranges[activeNoteStep % ranges.length];
+  activeNoteStep++;
+  const mirror = makeEditorRectMirror();
+  const node = mirror.firstChild;
+  const er = ed.getBoundingClientRect();
+  if (node && node.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange();
+    range.setStart(node, Math.min(target.start, node.length));
+    range.setEnd(node, Math.min(target.end, node.length));
+    Array.from(range.getClientRects()).forEach(rect => {
+      if (rect.bottom < er.top || rect.top > er.bottom || rect.right < er.left || rect.left > er.right) return;
+      const box = document.createElement("div");
+      box.className = "activeNoteBox";
+      box.style.left = Math.max(rect.left, er.left) + "px";
+      box.style.top = Math.max(rect.top, er.top) + "px";
+      box.style.width = Math.max(8, Math.min(rect.right, er.right) - Math.max(rect.left, er.left)) + "px";
+      box.style.height = Math.max(16, rect.height) + "px";
+      activeNoteOverlay.appendChild(box);
+    });
+  }
+  mirror.remove();
+}
+
+function startActiveNoteOverlay() {
+  stopActiveNoteOverlay();
+  activeNoteStep = 0;
+  drawActiveNoteOverlay();
+  activeNoteTimer = setInterval(drawActiveNoteOverlay, Math.max(180, Math.min(520, 30000 / bpm)));
+}
+
+function stopActiveNoteOverlay() {
+  if (activeNoteTimer) clearInterval(activeNoteTimer);
+  activeNoteTimer = null;
+  activeNoteOverlay.textContent = "";
+}
 
 function finishVisuals() {
   while (visPool.length > visCount) visPool.pop().remove(); // 使われなかった余りを撤去
@@ -2143,7 +2526,7 @@ function patchVisuals() {
   // pianoroll: ctxの差し替えだけでよい(描画は本体の共通ループが回す)
   const origRoll = P.pianoroll;
   P.pianoroll = function (opts = {}) {
-    return origRoll.call(this, { ctx: allocVisualCanvas(), ...opts });
+    return origRoll.call(this, { ...themedVisualOptions(opts), ctx: allocVisualCanvas() });
   };
   // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
   // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
@@ -2152,7 +2535,9 @@ function patchVisuals() {
     if (!orig) return;
     P[name] = function (opts = {}) {
       const ctx = allocVisualCanvas();
-      return orig.call(this, { ctx, id: 1 + visCount, ...opts });
+      const visualOpts = themedVisualOptions(opts);
+      const id = opts.id !== undefined ? opts.id : 1 + visCount;
+      return orig.call(this, { ...visualOpts, id, ctx });
     };
   });
 }
@@ -2189,6 +2574,7 @@ async function runEval() {
       clearError();
       setStatus("再生中", "playing");
       setTransport(true);
+      startActiveNoteOverlay();
       acquireWakeLock();
     } catch (e) {
       if (mySeq !== evalSeq) return;
@@ -2199,7 +2585,7 @@ async function runEval() {
   });
 }
 
-function stopAll() {
+function stopAll(statusText) {
   clearTimeout(evalTimer); // 予約済みの再評価をキャンセル
   evalSeq++;               // 実行中(await中)のevaluateも無効化
   wantPlaying = false;
@@ -2211,10 +2597,11 @@ function stopAll() {
     if (!wantPlaying) { try { hardHush(); } catch (e) {} }
   }, 400);
   playing = false;
-  setStatus("停止", "ready");
+  setStatus(statusText || "停止", "ready");
   setTransport(false);
   releaseWakeLock();
   setVisualVisible(false);
+  stopActiveNoteOverlay();
   setTimeout(clearVisual, 300); // 最終フレームの描画が終わった頃に中身も消しておく
 }
 
@@ -2240,7 +2627,11 @@ function releaseWakeLock() {
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && playing) acquireWakeLock();
+  if (document.visibilityState === "hidden" && (playing || wantPlaying) && !backgroundPlayEnabled) {
+    stopAll("非アクティブで停止");
+  } else if (document.visibilityState === "visible" && playing) {
+    acquireWakeLock();
+  }
 });
 
 /* ─────────────────────────────────────
@@ -2369,6 +2760,7 @@ if (sharedSong) {
 } else {
   ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
 }
+syncBpmFromCode();
 hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
