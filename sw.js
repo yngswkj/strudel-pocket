@@ -65,7 +65,8 @@ function cacheFirst(request, cacheName) {
 }
 
 function networkFirstShell(request) {
-  return fetch(request)
+  // GitHub PagesのHTTPキャッシュ(max-age=600)を無視して常に再検証し、更新を即配信する
+  return fetch(request.url, { cache: "no-cache", credentials: "same-origin" })
     .then(response => {
       if (response && response.ok) {
         caches.open(SHELL_CACHE_NAME).then(cache => cache.put(request, response.clone())).catch(() => {});
