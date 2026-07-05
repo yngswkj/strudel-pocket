@@ -295,6 +295,38 @@
   }
   .snapSave{color:var(--cool)}
   .snapLoad:disabled{opacity:.35}
+  #songPanel{margin:0 2px 18px}
+  #songTitle{
+    width:100%;height:42px;border-radius:10px;padding:0 12px;margin-bottom:8px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font:14px var(--mono);
+  }
+  #songButtons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  #songSave,#songSaveAs{
+    height:40px;border-radius:10px;font-size:13px;font-weight:700;
+    border:1px solid var(--line);
+  }
+  #songSave{background:var(--cool);color:#062a25;border-color:transparent}
+  #songSaveAs{background:var(--surface2);color:var(--text)}
+  #songList{display:grid;gap:8px}
+  .songRow{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
+    min-width:0;padding:8px;background:var(--surface2);
+    border:1px solid var(--line);border-radius:10px;
+  }
+  .songRow.active{border-color:var(--cool)}
+  .songMeta{min-width:0}
+  .songName{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .songInfo{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .songLoad,.songDelete{
+    height:32px;border-radius:8px;padding:0 8px;font-size:12px;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+  }
+  .songDelete{color:var(--warn)}
+  .songEmpty{
+    padding:9px 10px;border-radius:10px;border:1px dashed var(--line);
+    color:var(--muted);font-size:12px;
+  }
   .card{
     background:var(--surface2);border:1px solid var(--line);border-radius:14px;
     padding:12px;margin-bottom:10px;
@@ -375,6 +407,15 @@
     <div id="soundPalette"></div>
     <h2>スナップ</h2>
     <div id="snapSlots"></div>
+    <h2>曲</h2>
+    <div id="songPanel">
+      <input id="songTitle" type="text" maxlength="60" placeholder="曲名">
+      <div id="songButtons">
+        <button id="songSave">保存</button>
+        <button id="songSaveAs">別名保存</button>
+      </div>
+      <div id="songList"></div>
+    </div>
     <h2>パターン集</h2>
     <div id="cards"></div>
     <button class="danger" id="clearBtn">エディタを空にする</button>
@@ -424,6 +465,10 @@ const THEME_KEY = "strudel-pocket-theme";
 const MODE_KEY = "strudel-pocket-chip-mode";
 const SNAP_KEY = "strudel-pocket-snaps";
 const SOUND_PROFILE_KEY = "strudel-pocket-sound-profile";
+const CURRENT_SONG_KEY = "strudel-pocket-current-song";
+const DB_NAME = "strudel-pocket-db";
+const DB_VERSION = 1;
+const SONG_STORE = "songs";
 
 /* ─────────────────────────────────────
    プリセット
@@ -764,6 +809,195 @@ function loadSnap(id) {
   setStatus(id + "を読み込み", playing ? "playing" : "ready");
 }
 renderSnaps();
+
+const songTitleInput = document.getElementById("songTitle");
+const songSaveBtn = document.getElementById("songSave");
+const songSaveAsBtn = document.getElementById("songSaveAs");
+const songListEl = document.getElementById("songList");
+let currentSongId = "";
+let songLibrary = [];
+let pocketDbPromise = null;
+if (store) {
+  try { currentSongId = store.getItem(CURRENT_SONG_KEY) || ""; } catch (e) {}
+}
+
+function openPocketDB() {
+  if (!("indexedDB" in window)) return Promise.reject(new Error("IndexedDBが使えません"));
+  if (pocketDbPromise) return pocketDbPromise;
+  pocketDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SONG_STORE)) {
+        const store = db.createObjectStore(SONG_STORE, { keyPath: "id" });
+        store.createIndex("updatedAt", "updatedAt");
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("IndexedDBを開けません"));
+  });
+  return pocketDbPromise;
+}
+
+function withSongStore(mode, action) {
+  return openPocketDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(SONG_STORE, mode);
+    const store = tx.objectStore(SONG_STORE);
+    let req = null;
+    try { req = action(store); } catch (e) { reject(e); return; }
+    tx.oncomplete = () => resolve(req ? req.result : undefined);
+    tx.onerror = () => reject(tx.error || (req && req.error) || new Error("曲データベースエラー"));
+    tx.onabort = () => reject(tx.error || new Error("曲データベース処理を中断しました"));
+  }));
+}
+
+function getAllSongs() { return withSongStore("readonly", store => store.getAll()); }
+function getSong(id) { return withSongStore("readonly", store => store.get(id)); }
+function putSong(song) { return withSongStore("readwrite", store => store.put(song)); }
+function deleteSong(id) { return withSongStore("readwrite", store => store.delete(id)); }
+
+function makeSongId() {
+  return "song-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+function songTitleFromCode() {
+  const line = ed.value.split(/\n/).map(l => l.trim()).find(Boolean);
+  if (!line) return "Untitled";
+  return line.replace(/\s+/g, " ").slice(0, 40);
+}
+
+function formatSongDate(ms) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  const yy = String(d.getFullYear()).slice(2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return yy + "/" + mm + "/" + dd + " " + hh + ":" + mi;
+}
+
+function cloneSnaps() {
+  try { return JSON.parse(JSON.stringify(snaps || {})); } catch (e) { return {}; }
+}
+
+function setCurrentSong(id) {
+  currentSongId = id || "";
+  if (store) {
+    try {
+      if (currentSongId) store.setItem(CURRENT_SONG_KEY, currentSongId);
+      else store.removeItem(CURRENT_SONG_KEY);
+    } catch (e) {}
+  }
+  renderSongList();
+}
+
+function renderSongList(message) {
+  songListEl.textContent = "";
+  if (message) {
+    const empty = document.createElement("div");
+    empty.className = "songEmpty";
+    empty.textContent = message;
+    songListEl.appendChild(empty);
+    return;
+  }
+  if (!songLibrary.length) {
+    const empty = document.createElement("div");
+    empty.className = "songEmpty";
+    empty.textContent = "保存した曲はまだありません";
+    songListEl.appendChild(empty);
+    return;
+  }
+  songLibrary.forEach(song => {
+    const row = document.createElement("div");
+    row.className = "songRow";
+    row.classList.toggle("active", song.id === currentSongId);
+    row.innerHTML = '<div class="songMeta"><div class="songName"></div><div class="songInfo"></div></div>' +
+      '<button class="songLoad">読込</button><button class="songDelete">削除</button>';
+    row.querySelector(".songName").textContent = song.title || "Untitled";
+    const lines = (song.code || "").split(/\n/).length;
+    row.querySelector(".songInfo").textContent = formatSongDate(song.updatedAt) + " / " + lines + "行";
+    bindTap(row.querySelector(".songLoad"), () => loadSong(song));
+    bindTap(row.querySelector(".songDelete"), () => removeSong(song));
+    songListEl.appendChild(row);
+  });
+}
+
+async function refreshSongList() {
+  try {
+    songLibrary = (await getAllSongs())
+      .filter(song => song && song.id)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    renderSongList();
+    if (currentSongId && !songTitleInput.value.trim()) {
+      const current = songLibrary.find(song => song.id === currentSongId);
+      if (current) songTitleInput.value = current.title || "";
+    }
+  } catch (e) {
+    songLibrary = [];
+    renderSongList("この環境では曲保存を使えません");
+  }
+}
+
+async function saveCurrentSong(asNew) {
+  if (!ed.value.trim()) { setStatus("空の曲は保存しません", playing ? "playing" : "ready"); return; }
+  try {
+    const existing = (!asNew && currentSongId) ? await getSong(currentSongId).catch(() => null) : null;
+    const song = {
+      id: existing ? existing.id : makeSongId(),
+      title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
+      code: ed.value,
+      theme: document.documentElement.dataset.theme || "",
+      soundProfile,
+      snapshots: cloneSnaps(),
+      createdAt: existing ? (existing.createdAt || Date.now()) : Date.now(),
+      updatedAt: Date.now()
+    };
+    await putSong(song);
+    songTitleInput.value = song.title;
+    setCurrentSong(song.id);
+    await refreshSongList();
+    setStatus("曲を保存", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("曲保存失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+async function loadSong(song) {
+  if (!song || !song.id) return;
+  setCurrentSong(song.id);
+  songTitleInput.value = song.title || "";
+  ed.value = song.code || "";
+  snaps = song.snapshots || {};
+  persistSnaps();
+  renderSnaps();
+  if (song.theme !== undefined) applyTheme(song.theme || "");
+  if (song.soundProfile) setSoundProfile(song.soundProfile);
+  afterEdit();
+  updateScrubber();
+  closeDrawer();
+  ed.focus();
+  setStatus("曲を読み込み", playing ? "playing" : "ready");
+}
+
+async function removeSong(song) {
+  if (!song || !song.id) return;
+  if (!confirm("この曲を削除しますか？")) return;
+  try {
+    await deleteSong(song.id);
+    if (song.id === currentSongId) setCurrentSong("");
+    await refreshSongList();
+    setStatus("曲を削除", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("曲削除失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+bindTap(songSaveBtn, () => saveCurrentSong(false));
+bindTap(songSaveAsBtn, () => saveCurrentSong(true));
+refreshSongList();
 
 const cardsEl = document.getElementById("cards");
 PRESETS.forEach(p => {
