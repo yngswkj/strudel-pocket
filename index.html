@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<!-- lang="en": iOS/Androidはページ言語からソフトキーボードの初期言語を推測するため、
+     日本語キーボードが出るのを避ける目的で意図的にenにしている(UI文言は日本語のまま) -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Strudel Pocket</title>
+<!-- Strudel core (web bundle). CDNから読み込むためオフラインでは動きません -->
+<script id="strudel-lib" src="https://unpkg.com/@strudel/web@1.3.0"></script>
+<style>
+  :root{
+    --bg:#0e1116;
+    --surface:#171c26;
+    --surface2:#1f2634;
+    --line:#28303f;
+    --text:#e7eaf2;
+    --muted:#8b93a7;
+    --hot:#ff7a45;   /* 再生・アクション */
+    --cool:#3fd6c0;  /* フェーダー・準備OK */
+    --warn:#ff5470;  /* エラー */
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+  }
+  /* ── テーマ(本家 green-text / archBtw の配色を移植) ── */
+  :root[data-theme="greenText"]{
+    --bg:#000000;--surface:#0a0f08;--surface2:#111a0d;--line:#1e2b18;
+    --text:#56bd2a;--muted:#54636d;--hot:#8ed675;--cool:#56bd2a;
+  }
+  :root[data-theme="archBtw"]{
+    --bg:#000000;--surface:#050d13;--surface2:#0a161e;--line:#12293a;
+    --text:#52d0fa;--muted:rgba(113,208,250,.4);--hot:#52d0fa;--cool:#52d0fa;
+  }
+  /* Strudelの視覚化(.pianoroll()等)が作る全画面キャンバスをエディタの背面に敷く。
+     ヘッダーとドックは不透明なので、エディタ領域だけ透けて見える */
+  #test-canvas{z-index:-1}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--sans);
+    overscroll-behavior:none;
+    display:flex;flex-direction:column;
+    height:100dvh;
+  }
+  button{
+    font-family:inherit;touch-action:manipulation;cursor:pointer;border:none;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none; /* 長押しでの選択メニュー抑止 */
+  }
+
+  /* ── ヘッダー ─────────────────────── */
+  header{
+    display:flex;align-items:center;gap:10px;
+    padding:8px 12px calc(8px) 14px;
+    padding-top:calc(8px + env(safe-area-inset-top));
+    background:var(--surface);border-bottom:1px solid var(--line);
+    flex:0 0 auto;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:0 0 auto;transition:background .3s}
+  .dot.ready{background:var(--cool)}
+  .dot.playing{background:var(--hot)}
+  @media (prefers-reduced-motion: no-preference){
+    .dot.playing{animation:pulse 1s ease-in-out infinite}
+    @keyframes pulse{50%{opacity:.35}}
+  }
+  .dot.error{background:var(--warn)}
+  .brand{font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:.04em}
+  .brand small{color:var(--muted);font-weight:400;margin-left:6px;font-size:11px}
+  #status{font-size:11px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hbtn{
+    background:var(--surface2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;height:34px;padding:0 10px;font-size:12px;flex:0 0 auto;
+  }
+  .hbtn:active:not(:disabled){background:var(--line)}
+  .hbtn:disabled{opacity:.35}
+
+  /* ヘッダー内の横スクロールボタン群(↶↷が見え、スクロールするとA−/A＋が現れる) */
+  #hscroll{
+    display:flex;gap:6px;flex:0 0 auto;width:82px;overflow-x:auto;
+    scrollbar-width:none;scroll-snap-type:x mandatory;
+  }
+  #hscroll::-webkit-scrollbar{display:none}
+  #hscroll .hbtn{
+    scroll-snap-align:start;font-size:14px;
+    touch-action:pan-x; /* ボタン上からでも横スワイプでスクロールできる */
+  }
+
+  /* 狭い画面(スマホ縦)ではヘッダーを詰める */
+  @media (max-width:430px){
+    header{gap:8px;padding-left:12px;padding-right:10px}
+    .brand small{display:none}
+  }
+
+  /* ── エディタ ─────────────────────── */
+  #ed{
+    flex:1;width:100%;resize:none;border:none;outline:none;
+    background:transparent;color:var(--text); /* 透明: 背面の視覚化キャンバスを見せる */
+    font-family:var(--mono);font-size:16px;line-height:1.55;
+    padding:14px 14px 140px;
+    caret-color:var(--hot);
+  }
+  #ed.withVisuals{padding-bottom:270px} /* 視覚化エリアの分だけ余白を増やす */
+  #ed::selection{background:rgba(63,214,192,.28)}
+
+  /* ── 下部ドック ───────────────────── */
+  #dock{
+    position:fixed;left:0;right:0;bottom:0;z-index:20;
+    background:var(--surface);border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+    will-change:transform;
+  }
+  /* 視覚化エリア(.pianoroll()/.scope()の描画先。ドック上段=コードの下) */
+  #visuals{display:none;gap:6px;padding:6px 10px 0;height:120px}
+  #visuals.show{display:flex}
+  #visuals canvas{
+    flex:1;min-width:0;height:100%;border-radius:10px;
+    background:rgba(0,0,0,.3);border:1px solid var(--line);
+  }
+
+  #errbar{
+    display:none;padding:6px 12px;font-size:12px;
+    font-family:var(--mono);color:var(--warn);
+    background:rgba(255,84,112,.1);border-bottom:1px solid rgba(255,84,112,.3);
+    white-space:nowrap;overflow-x:auto;
+  }
+  #errbar.show{display:block}
+
+  /* 数値フェーダー(シグネチャ要素) */
+  #scrub{
+    display:none;align-items:center;gap:8px;
+    padding:8px 12px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(63,214,192,.07),transparent);
+  }
+  #scrub.show{display:flex}
+  #scrubVal{
+    font-family:var(--mono);font-size:15px;font-weight:700;color:var(--cool);
+    min-width:64px;text-align:right;
+  }
+  .step{
+    width:38px;height:38px;border-radius:10px;flex:0 0 auto;
+    background:var(--surface2);border:1px solid var(--line);color:var(--cool);
+    font-size:18px;font-weight:700;line-height:1;
+  }
+  .step:active{background:var(--line)}
+  #fader{
+    flex:1;appearance:none;-webkit-appearance:none;height:38px;background:transparent;min-width:0;
+  }
+  #fader::-webkit-slider-runnable-track{
+    height:6px;border-radius:3px;
+    background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 12%),var(--surface2);
+  }
+  #fader::-webkit-slider-thumb{
+    -webkit-appearance:none;width:22px;height:30px;margin-top:-12px;
+    border-radius:6px;background:var(--cool);
+    box-shadow:inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 8px rgba(63,214,192,.4);
+  }
+
+  /* 編集操作(カーソル移動・undo/redo) + 関数チップ */
+  #editrow{display:flex;gap:6px;align-items:stretch;padding:8px 10px 2px}
+  .ekey{
+    width:36px;border-radius:9px;flex:0 0 auto;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:15px;
+  }
+  .ekey:disabled{opacity:.35}
+  .ekey:active:not(:disabled){background:var(--line)}
+  #chips{
+    display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;
+    scrollbar-width:none;
+  }
+  #chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto;background:var(--surface2);border:1px solid var(--line);
+    color:var(--text);border-radius:999px;padding:9px 14px;
+    font-family:var(--mono);font-size:13px;
+    touch-action:pan-x; /* 横スクロールを許可(スクロール開始でpointercancelが発火) */
+  }
+  .chip:active{background:var(--line)}
+
+  /* 記号キー */
+  #keys{display:flex;gap:5px;padding:6px 10px}
+  .key{
+    flex:1;height:44px;border-radius:9px;min-width:0;padding:0;
+    background:var(--surface2);border:1px solid var(--line);
+    color:var(--text);font-family:var(--mono);font-size:16px;
+    display:flex;align-items:center;justify-content:center;
+    white-space:nowrap; /* "[ ]"等のスペース入りラベルが縦2段に折り返すのを防ぐ */
+  }
+  .key:active{background:var(--line)}
+  @media (max-width:430px){
+    #keys{gap:4px;padding:6px 8px}
+    .key{font-size:13px}
+  }
+
+  /* トランスポート(ヘッダー内)。再生/停止のトグル1個に集約 */
+  #playBtn{
+    width:64px;height:36px;border-radius:10px;font-size:16px;font-weight:700;
+    background:var(--hot);color:#1a0e07;flex:0 0 auto;
+    transition:background .15s,color .15s;
+  }
+  #playBtn.playing{background:var(--cool);color:#062a25}
+  #playBtn:active{filter:brightness(1.12)}
+
+  /* ヘッダーの小型ボタン(A−/A＋は文字幅差が出ないよう固定幅) */
+  .hbtn.compact{width:38px;padding:0;font-size:12px;text-align:center}
+
+  /* ── パターン集ドロワー ─────────────── */
+  #drawer{
+    position:fixed;inset:0;z-index:50;display:none;
+    background:rgba(10,12,17,.72);backdrop-filter:blur(3px);
+  }
+  #drawer.show{display:block}
+  #sheet{
+    position:absolute;left:0;right:0;bottom:0;max-height:82%;
+    background:var(--surface);border-radius:18px 18px 0 0;
+    border-top:1px solid var(--line);
+    padding:14px 14px calc(20px + env(safe-area-inset-bottom));
+    overflow-y:auto;
+  }
+  #sheet::before{ /* シートのつまみ(下から出るUIだと分かる視覚手がかり) */
+    content:"";display:block;width:36px;height:4px;border-radius:2px;
+    background:var(--line);margin:0 auto 12px;
+  }
+  #sheet h2{font-size:15px;margin:2px 4px 12px;font-weight:700}
+  #themes{display:flex;gap:8px;margin:0 2px 18px}
+  .themeBtn{
+    flex:1;height:44px;border-radius:10px;font-size:13px;font-family:var(--mono);
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  .card{
+    background:var(--surface2);border:1px solid var(--line);border-radius:14px;
+    padding:12px;margin-bottom:10px;
+  }
+  .card h3{margin:0 0 2px;font-size:14px}
+  .card p{margin:0 0 8px;font-size:12px;color:var(--muted)}
+  .card pre{
+    margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--bg);
+    font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--muted);
+    max-height:76px;overflow:hidden;
+  }
+  .cardBtns{display:flex;gap:8px}
+  .load{
+    flex:1;height:40px;border-radius:10px;font-size:13px;font-weight:700;
+    background:var(--cool);color:#062a25;
+  }
+  .append{
+    width:88px;height:40px;border-radius:10px;font-size:13px;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+  }
+  .danger{
+    width:100%;height:42px;border-radius:10px;font-size:13px;margin-top:4px;
+    background:transparent;border:1px solid rgba(255,84,112,.5);color:var(--warn);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot" id="dot"></div>
+  <div class="brand">Strudel<small>Pocket</small></div>
+  <div id="status">読み込み中…</div>
+  <div id="hscroll">
+    <button class="hbtn compact" id="undoBtn" aria-label="元に戻す" disabled>↶</button>
+    <button class="hbtn compact" id="redoBtn" aria-label="やり直す" disabled>↷</button>
+    <button class="hbtn compact" id="fontMinus" aria-label="文字を小さく">A−</button>
+    <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
+  </div>
+  <button class="hbtn" id="openDrawer">パターン</button>
+  <button id="playBtn" aria-label="再生">▶</button>
+</header>
+
+<textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
+  autocomplete="off" inputmode="email" lang="en"
+  placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+
+<div id="dock">
+  <div id="visuals"></div>
+  <div id="errbar"></div>
+
+  <div id="scrub">
+    <button class="step" id="stepMinus" aria-label="値を減らす">−</button>
+    <input type="range" id="fader" aria-label="数値フェーダー">
+    <button class="step" id="stepPlus" aria-label="値を増やす">＋</button>
+    <div id="scrubVal">0</div>
+  </div>
+
+  <div id="editrow">
+    <button class="ekey" id="caretL" aria-label="カーソルを左へ">←</button>
+    <button class="ekey" id="caretR" aria-label="カーソルを右へ">→</button>
+    <div id="chips"></div>
+  </div>
+  <div id="keys"></div>
+</div>
+
+<div id="drawer">
+  <div id="sheet">
+    <h2>テーマ</h2>
+    <div id="themes">
+      <button class="themeBtn active" data-theme="">Pocket</button>
+      <button class="themeBtn" data-theme="greenText">greenText</button>
+      <button class="themeBtn" data-theme="archBtw">archBtw</button>
+    </div>
+    <h2>パターン集</h2>
+    <div id="cards"></div>
+    <button class="danger" id="clearBtn">エディタを空にする</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+console.log("%c🥨 Strudel Pocket", "color:#3fd6c0;font-size:16px;font-weight:bold");
+
+/* ─────────────────────────────────────
+   要素
+───────────────────────────────────── */
+const ed = document.getElementById("ed");
+const dock = document.getElementById("dock");
+const dot = document.getElementById("dot");
+const statusEl = document.getElementById("status");
+const errbar = document.getElementById("errbar");
+const scrub = document.getElementById("scrub");
+const fader = document.getElementById("fader");
+const scrubVal = document.getElementById("scrubVal");
+const playBtn = document.getElementById("playBtn");
+
+/* ─────────────────────────────────────
+   状態
+───────────────────────────────────── */
+let playing = false;
+let strudelReady = false;
+let wakeLock = null;
+let scrubbing = false;
+let tok = null; // {start,end,hasDot}
+
+/* ─────────────────────────────────────
+   ストレージ(使えない環境ではメモリのみ)
+───────────────────────────────────── */
+const store = (() => {
+  try {
+    const k = "__sp_test";
+    localStorage.setItem(k, "1");
+    localStorage.removeItem(k);
+    return localStorage;
+  } catch (e) { return null; }
+})();
+const SAVE_KEY = "strudel-pocket-code";
+const FONT_KEY = "strudel-pocket-font";
+const THEME_KEY = "strudel-pocket-theme";
+
+/* ─────────────────────────────────────
+   プリセット
+───────────────────────────────────── */
+const PRESETS = [
+  {
+    name: "4つ打ち(House)",
+    desc: "キック4分 + スネア + 16分ハット",
+    code: 'setcpm(30)\nstack(\n  s("bd*4"),\n  s("~ sd ~ sd").room(.2),\n  s("hh*8").gain(.6).pan(sine)\n)'
+  },
+  {
+    name: "ブレイクビーツ",
+    desc: "ミニ記法のカンマで重ねる書き方",
+    code: 'setcpm(35)\ns("bd ~ [~ bd] ~, ~ sd ~ [sd ~ sd ~], hh*8")\n  .gain(.9)'
+  },
+  {
+    name: "アシッドベース",
+    desc: "sawtooth + フィルターエンベロープ",
+    code: 'setcpm(30)\nnote("c2 [~ c2] eb2 <g1 bb1>")\n  .s("sawtooth")\n  .lpf(500).lpenv(4).lpq(8)\n  .release(.15).gain(.8)'
+  },
+  {
+    name: "ペンタトニック",
+    desc: "scale()で音階から鳴らす",
+    code: 'setcpm(30)\nn("<0 [2 4] 7 [4 2]>*2")\n  .scale("C4:minor:pentatonic")\n  .s("triangle").delay(.4).room(.6).gain(.7)'
+  },
+  {
+    name: "まとめデモ",
+    desc: "上の全部入り。数字をタップしてフェーダーで動かしてみて",
+    code: 'setcpm(30)\nstack(\n  s("bd*4"),\n  s("~ sd").room(.2),\n  s("hh*8").gain(.5).pan(sine),\n  note("c2 [~ c2] eb2 g1").s("sawtooth").lpf(600).lpenv(3),\n  n("<0 2 4 7>*2").scale("C4:minor:pentatonic").s("triangle").delay(.3).gain(.6)\n)'
+  }
+];
+
+/* ─────────────────────────────────────
+   チップ・記号キー定義
+   [挿入文字列, 表示ラベル, カーソル位置(nullなら末尾)]
+───────────────────────────────────── */
+const CHIPS = [
+  ['s("")',                 's("…")',        3],
+  ['note("")',              'note',          6],
+  ['n("")',                 'n',             3],
+  ['.fast(2)',              '.fast',         6],
+  ['.slow(2)',              '.slow',         6],
+  ['.rev()',                '.rev',          null],
+  ['.jux(rev)',             '.jux(rev)',     null],
+  ['.lpf(800)',             '.lpf',          5],
+  ['.hpf(400)',             '.hpf',          5],
+  ['.gain(0.8)',            '.gain',         6],
+  ['.room(0.5)',            '.room',         6],
+  ['.delay(0.3)',           '.delay',        7],
+  ['.pan(sine)',            '.pan(sine)',    null],
+  ['.speed(1.5)',           '.speed',        7],
+  ['.crush(4)',             '.crush',        7],
+  ['.scale("C:minor")',     '.scale',        8],
+  ['.sometimes(x=>x.rev())','.sometimes',    null],
+  ['.pianoroll()',          '.pianoroll',    null],
+  ['.scope()',              '.scope',        null],
+  ['setcpm(30)',            'setcpm',        7],
+  ['stack(\n  \n)',         'stack',         9],
+];
+
+const KEYS = [
+  ['~',  '~',   null],
+  ['*',  '*',   null],
+  ['/',  '/',   null],
+  ['.',  '.',   null],
+  [',',  ',',   null],
+  ['""', '"',   1],
+  ['#',  '#',   null],
+  [':',  ':',   null],
+  ['[]', '[ ]', 1],
+  ['<>', '< >', 1],
+  ['()', '( )', 1],
+];
+
+/* ─────────────────────────────────────
+   UI生成
+───────────────────────────────────── */
+const chipsEl = document.getElementById("chips");
+CHIPS.forEach(([text, label, caret]) => {
+  const b = document.createElement("button");
+  b.className = "chip";
+  b.textContent = label;
+  bindInsert(b, text, caret);
+  chipsEl.appendChild(b);
+});
+
+const keysEl = document.getElementById("keys");
+KEYS.forEach(([text, label, caret]) => {
+  const b = document.createElement("button");
+  b.className = "key";
+  b.textContent = label;
+  bindInsert(b, text, caret);
+  keysEl.appendChild(b);
+});
+
+const cardsEl = document.getElementById("cards");
+PRESETS.forEach(p => {
+  const c = document.createElement("div");
+  c.className = "card";
+  c.innerHTML = "<h3></h3><p></p><pre></pre>" +
+    '<div class="cardBtns"><button class="load">読み込む</button><button class="append">＋挿入</button></div>';
+  c.querySelector("h3").textContent = p.name;
+  c.querySelector("p").textContent = p.desc;
+  c.querySelector("pre").textContent = p.code;
+  c.querySelector(".load").addEventListener("click", () => {
+    ed.value = p.code;
+    afterEdit();
+    closeDrawer();
+  });
+  c.querySelector(".append").addEventListener("click", () => {
+    ed.value = ed.value.replace(/\s*$/, "") + (ed.value.trim() ? "\n\n" : "") + p.code;
+    afterEdit();
+    closeDrawer();
+  });
+  cardsEl.appendChild(c);
+});
+
+/* ─────────────────────────────────────
+   タップ判定(キーボードを閉じさせない + スクロールと区別する)
+───────────────────────────────────── */
+function bindTap(btn, fn) {
+  let down = null;
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault(); // textareaのフォーカスを奪わない → ソフトキーボードが閉じない
+    down = { x: e.clientX, y: e.clientY };
+  });
+  btn.addEventListener("pointercancel", () => { down = null; }); // スクロール開始で発火
+  btn.addEventListener("pointerup", e => {
+    if (!down) return;
+    const moved = Math.abs(e.clientX - down.x) > 8 || Math.abs(e.clientY - down.y) > 8;
+    down = null;
+    if (moved) return; // ドラッグ(スクロール)はタップ扱いしない
+    e.preventDefault();
+    fn();
+  });
+}
+
+function bindInsert(btn, text, caret) {
+  bindTap(btn, () => insertAtCursor(text, caret));
+}
+
+function insertAtCursor(text, caret) {
+  ed.focus();
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  ed.setRangeText(text, s, e, "end");
+  if (caret !== null && caret !== undefined) {
+    ed.selectionStart = ed.selectionEnd = s + caret;
+  }
+  afterEdit();
+  updateScrubber();
+}
+
+/* ─────────────────────────────────────
+   編集後の共通処理(自動保存 + 再生中なら再評価)
+───────────────────────────────────── */
+let saveTimer = null, evalTimer = null;
+function afterEdit() {
+  if (store) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try { store.setItem(SAVE_KEY, ed.value); } catch (e) {}
+    }, 500);
+  }
+  recordHistory();
+  if (playing) {
+    clearTimeout(evalTimer);
+    evalTimer = setTimeout(runEval, 300);
+  }
+}
+ed.addEventListener("input", afterEdit);
+
+/* ─────────────────────────────────────
+   編集履歴(スマホではOSキーボードのundoが使いにくいため独自に持つ)
+───────────────────────────────────── */
+const undoBtn = document.getElementById("undoBtn");
+const redoBtn = document.getElementById("redoBtn");
+const hist = [];
+let histIdx = -1, histTimer = null, applyingHist = false;
+
+function flushHistory() {
+  clearTimeout(histTimer);
+  if (hist[histIdx] === ed.value) return;
+  hist.splice(histIdx + 1);           // redo側を捨てる
+  hist.push(ed.value);
+  if (hist.length > 100) hist.shift(); // 上限
+  histIdx = hist.length - 1;
+  updateHistBtns();
+}
+function recordHistory() {
+  if (applyingHist) return;
+  clearTimeout(histTimer);
+  histTimer = setTimeout(flushHistory, 400); // 連続入力は1エントリにまとめる
+}
+function applyHistory(d) {
+  flushHistory(); // 保留中の変更を先に確定してから移動
+  const i = histIdx + d;
+  if (i < 0 || i >= hist.length) return;
+  histIdx = i;
+  applyingHist = true;
+  ed.value = hist[i];
+  afterEdit();
+  applyingHist = false;
+  updateHistBtns();
+}
+function updateHistBtns() {
+  undoBtn.disabled = histIdx <= 0;
+  redoBtn.disabled = histIdx >= hist.length - 1;
+}
+
+/* カーソル移動(textarea内のタップ位置調整はスマホだと難しいため) */
+function moveCaret(d) {
+  ed.focus();
+  const hasSel = ed.selectionStart !== ed.selectionEnd;
+  let p = d < 0 ? ed.selectionStart : ed.selectionEnd;
+  if (!hasSel) p += d; // 選択中は選択の端に畳むだけ(標準的な挙動)
+  p = Math.max(0, Math.min(ed.value.length, p));
+  ed.selectionStart = ed.selectionEnd = p;
+  updateScrubber();
+}
+
+document.getElementById("caretL").addEventListener("pointerdown", e => {
+  e.preventDefault(); moveCaret(-1);
+});
+document.getElementById("caretR").addEventListener("pointerdown", e => {
+  e.preventDefault(); moveCaret(1);
+});
+// ヘッダーの#hscroll内にあるためスワイプ(A−/A＋を出す操作)と区別する
+bindTap(undoBtn, () => applyHistory(-1));
+bindTap(redoBtn, () => applyHistory(1));
+
+// PCでは縦ホイールでも#hscrollを横に送れるようにする
+document.getElementById("hscroll").addEventListener("wheel", e => {
+  e.preventDefault();
+  e.currentTarget.scrollLeft += e.deltaY + e.deltaX;
+}, { passive: false });
+
+/* ─────────────────────────────────────
+   数値フェーダー
+───────────────────────────────────── */
+function numberAtCaret() {
+  if (document.activeElement !== ed) return null;
+  if (ed.selectionStart !== ed.selectionEnd) {
+    // 選択中も選択範囲の先頭で判定
+  }
+  const pos = ed.selectionStart;
+  const text = ed.value;
+  const isNumChar = c => c >= "0" && c <= "9" || c === ".";
+  let a = pos, b = pos;
+  while (a > 0 && isNumChar(text[a - 1])) a--;
+  while (b < text.length && isNumChar(text[b])) b++;
+  if (a === b) return null;
+  const raw = text.slice(a, b);
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(raw)) return null;
+  // 直前が英字なら識別子の一部(例: lpf2という変数名)なので無視
+  if (a > 0 && /[A-Za-z_$]/.test(text[a - 1])) return null;
+  return { start: a, end: b, raw, value: parseFloat(raw), hasDot: raw.includes(".") };
+}
+
+function scrubConf(t) {
+  const v = t.value;
+  if (t.hasDot || v <= 2) {
+    return { min: 0, max: Math.max(1, Math.ceil(v * 2 * 10) / 10), step: 0.1, dec: 1 };
+  }
+  if (v <= 64) return { min: 0, max: Math.max(16, v * 2), step: 1, dec: 0 };
+  return { min: 0, max: v * 2, step: v >= 1000 ? 50 : 10, dec: 0 };
+}
+
+function fmtNum(v, dec) {
+  return String(parseFloat(v.toFixed(dec)));
+}
+
+let conf = null;
+let faderActive = false; // ドラッグ中はレンジを再計算しない
+function updateScrubber() {
+  if (scrubbing || faderActive) return;
+  const active = document.activeElement;
+  if (active && scrub.contains(active)) return; // フェーダー操作中は維持
+  const t = numberAtCaret();
+  if (!t) { scrub.classList.remove("show"); tok = null; return; }
+  // すでにフェーダーが掴んでいるのと同じ数値なら、レンジ(min/max/step)は据え置く。
+  // 値を書き換えるたびにmaxがv*2へ再拡張されて値が際限なく伸びるのを防ぐ。
+  if (tok && conf && t.start === tok.start && scrub.classList.contains("show")) {
+    tok = t;
+    return;
+  }
+  tok = t;
+  conf = scrubConf(t);
+  fader.min = conf.min;
+  fader.max = conf.max;
+  fader.step = conf.step;
+  fader.value = t.value;
+  scrubVal.textContent = t.raw;
+  scrub.classList.add("show");
+}
+
+function applyScrubValue(v) {
+  if (!tok) return;
+  v = Math.max(0, v);
+  const str = fmtNum(v, conf.dec);
+  scrubbing = true;
+  ed.setRangeText(str, tok.start, tok.end, "select");
+  scrubbing = false;
+  tok.end = tok.start + str.length;
+  tok.value = parseFloat(str);
+  tok.raw = str;
+  scrubVal.textContent = str;
+  afterEdit();
+}
+
+fader.addEventListener("input", () => applyScrubValue(parseFloat(fader.value)));
+fader.addEventListener("pointerdown", () => { faderActive = true; });
+window.addEventListener("pointerup", () => { faderActive = false; });
+window.addEventListener("pointercancel", () => { faderActive = false; });
+
+document.getElementById("stepMinus").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  if (!tok) return;
+  const v = Math.max(0, tok.value - parseFloat(fader.step));
+  if (v <= parseFloat(fader.min)) fader.min = 0;
+  fader.value = v;
+  applyScrubValue(v);
+});
+document.getElementById("stepPlus").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  if (!tok) return;
+  const v = tok.value + parseFloat(fader.step);
+  if (v >= parseFloat(fader.max)) fader.max = v * 2; // 上限に当たったら伸ばす
+  fader.value = v;
+  applyScrubValue(v);
+});
+
+document.addEventListener("selectionchange", () => {
+  if (document.activeElement === ed) updateScrubber();
+});
+ed.addEventListener("pointerup", updateScrubber);
+ed.addEventListener("keyup", updateScrubber);
+ed.addEventListener("blur", () => {
+  // フェーダー操作へ移った場合は残す
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (!(a && scrub.contains(a))) {
+      // caret情報は残るので消さずにおく(誤爆防止のため非表示のみ)
+    }
+  }, 50);
+});
+
+/* ─────────────────────────────────────
+   Strudel 初期化・再生
+───────────────────────────────────── */
+function setStatus(text, dotClass) {
+  statusEl.textContent = text;
+  dot.className = "dot" + (dotClass ? " " + dotClass : "");
+}
+function showError(msg) {
+  errbar.textContent = msg;
+  errbar.classList.add("show");
+}
+function clearError() {
+  errbar.classList.remove("show");
+}
+
+const libScript = document.getElementById("strudel-lib");
+libScript.addEventListener("error", () => {
+  setStatus("読み込み失敗", "error");
+  showError("Strudel本体(unpkg.com)を読み込めませんでした。通信環境を確認し、ブラウザで直接開いてください。");
+});
+
+window.addEventListener("load", () => {
+  if (typeof initStrudel === "function") {
+    try {
+      initStrudel({
+        prebake: () => samples("github:tidalcycles/dirt-samples")
+      });
+      patchVisuals();
+      strudelReady = true;
+      setStatus("準備OK(初回再生時にサンプル取得)", "ready");
+    } catch (e) {
+      setStatus("初期化エラー", "error");
+      showError(String(e));
+    }
+  } else if (!errbar.classList.contains("show")) {
+    setStatus("読み込み失敗", "error");
+    showError("Strudel本体を読み込めませんでした。このファイルをブラウザで直接開くか、Vercel等でホストしてください。");
+  }
+});
+
+let evalSeq = 0;              // 停止・再評価のたびに進める世代番号
+let wantPlaying = false;      // ユーザーが望んでいる状態(true=再生)
+let evalChain = Promise.resolve(); // evaluateを直列化し、完了順の入れ替わりを防ぐ
+
+// 再生/停止トグルの見た目を切り替える
+function setTransport(on) {
+  playBtn.textContent = on ? "■" : "▶";
+  playBtn.classList.toggle("playing", on);
+  playBtn.setAttribute("aria-label", on ? "停止" : "再生");
+}
+
+// グローバルのhushはreplスコープ用の別物(silenceを返すだけでスケジューラを止めない)。
+// 本当に停止するのはUMD名前空間側の strudel.hush (= scheduler.stop)。
+function hardHush() {
+  if (typeof strudel === "undefined" || typeof strudel.hush !== "function") {
+    showError("strudel.hush()が見つかりません(Strudel未初期化の可能性)");
+    return;
+  }
+  strudel.hush();
+}
+
+// 視覚化(.pianoroll()等)の描き残しを消す。キャンバスはStrudelが遅延生成する
+function clearVisual() {
+  const c = document.getElementById("test-canvas");
+  if (c) {
+    const x = c.getContext("2d");
+    if (x) x.clearRect(0, 0, c.width, c.height);
+  }
+}
+// 停止直後は描画ループが最終フレームを描くことがあるため、クリアではなく非表示で確実に消す
+function setVisualVisible(on) {
+  const c = document.getElementById("test-canvas");
+  if (c) c.style.visibility = on ? "" : "hidden";
+}
+
+/* ─────────────────────────────────────
+   視覚化(.pianoroll()/.scope()等)をコード下の専用エリアへ
+   Patternメソッドをラップし、描画先ctxを自前キャンバスに差し替える
+───────────────────────────────────── */
+const visualsEl = document.getElementById("visuals");
+const visPool = [];  // 生成済みキャンバス(評価をまたいで再利用)
+let visCount = 0;    // 今回の評価で割り当てた数
+
+function allocVisualCanvas() {
+  let c = visPool[visCount];
+  if (!c) {
+    c = document.createElement("canvas");
+    visualsEl.appendChild(c);
+    visPool.push(c);
+  }
+  visCount++;
+  visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
+  layoutVisualCanvases();
+  return c.getContext("2d");
+}
+
+function layoutVisualCanvases() {
+  const dpr = window.devicePixelRatio || 1;
+  visPool.forEach(c => {
+    const r = c.getBoundingClientRect();
+    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+    if (w && h && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; }
+  });
+}
+window.addEventListener("resize", () => setTimeout(layoutVisualCanvases, 250));
+
+function finishVisuals() {
+  while (visPool.length > visCount) visPool.pop().remove(); // 使われなかった余りを撤去
+  const has = visPool.length > 0;
+  visualsEl.classList.toggle("show", has);
+  ed.classList.toggle("withVisuals", has);
+  layoutVisualCanvases();
+}
+
+let visualsPatched = false;
+function patchVisuals() {
+  if (visualsPatched || typeof strudel === "undefined" || !strudel.Pattern) return;
+  visualsPatched = true;
+  const P = strudel.Pattern.prototype;
+  // pianoroll: ctxの差し替えだけでよい(描画は本体の共通ループが回す)
+  const origRoll = P.pianoroll;
+  P.pianoroll = function (opts = {}) {
+    return origRoll.call(this, { ctx: allocVisualCanvas(), ...opts });
+  };
+  // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
+  // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
+  ["scope", "tscope", "fscope", "spectrum"].forEach(name => {
+    const orig = P[name];
+    if (!orig) return;
+    P[name] = function (opts = {}) {
+      const ctx = allocVisualCanvas();
+      return orig.call(this, { ctx, id: 1 + visCount, ...opts });
+    };
+  });
+}
+
+async function runEval() {
+  clearTimeout(evalTimer);
+  if (!strudelReady) return;
+  // pointerdown+preventDefaultだとclickイベントが発火せず、Strudelの
+  // 自動アンロック(クリック時のresume)が効かないことがあるため明示的にresumeする
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state !== "running") ctx.resume();
+  } catch (e) {}
+  const code = ed.value.trim();
+  if (!code) { showError("コードが空です"); return; }
+  const mySeq = ++evalSeq;
+  wantPlaying = true;
+  setTransport(true); // 評価中から■にして、すぐ停止操作できるようにする
+  setStatus("評価中…", "playing");
+  evalChain = evalChain.then(async () => {
+    if (mySeq !== evalSeq) return; // 追い越された/停止された要求は評価自体をスキップ
+    try {
+      visCount = 0; // 視覚化キャンバスの割り当てを巻き戻す(評価中に再割り当てされる)
+      await evaluate(code);
+      if (mySeq !== evalSeq) {
+        // 評価中に停止された場合のみ黙らせる(新しい評価が控えている場合は触らない)
+        if (!wantPlaying) { try { hardHush(); } catch (e) {} }
+        return;
+      }
+      clearVisual(); // 視覚化を外した場合の描き残し対策(使用中なら次フレームで再描画される)
+      setVisualVisible(true);
+      finishVisuals();
+      playing = true;
+      clearError();
+      setStatus("再生中", "playing");
+      setTransport(true);
+      acquireWakeLock();
+    } catch (e) {
+      if (mySeq !== evalSeq) return;
+      if (!playing) { wantPlaying = false; setTransport(false); } // 鳴っていないなら▶に戻す
+      setStatus(playing ? "再生中(直前のエラーあり)" : "エラー", playing ? "playing" : "error");
+      showError(String(e && e.message ? e.message : e));
+    }
+  });
+}
+
+function stopAll() {
+  clearTimeout(evalTimer); // 予約済みの再評価をキャンセル
+  evalSeq++;               // 実行中(await中)のevaluateも無効化
+  wantPlaying = false;
+  try { hardHush(); } catch (e) {
+    showError("停止エラー: " + (e && e.message ? e.message : e));
+  }
+  // 停止直後に完了した評価の取りこぼし対策。ただし再生要求が出ていれば撃たない
+  setTimeout(() => {
+    if (!wantPlaying) { try { hardHush(); } catch (e) {} }
+  }, 400);
+  playing = false;
+  setStatus("停止", "ready");
+  setTransport(false);
+  releaseWakeLock();
+  setVisualVisible(false);
+  setTimeout(clearVisual, 300); // 最終フレームの描画が終わった頃に中身も消しておく
+}
+
+playBtn.addEventListener("pointerdown", e => {
+  e.preventDefault(); // キーボードを維持したまま操作
+  if (wantPlaying) stopAll(); else runEval();
+});
+
+/* PC向けキーボードショートカット(本家準拠: Ctrl+Enter=再生/更新, Ctrl+.=停止) */
+document.addEventListener("keydown", e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  if (e.key === "Enter") { e.preventDefault(); runEval(); }
+  else if (e.key === "." || e.code === "Period") { e.preventDefault(); stopAll(); }
+});
+
+/* 画面スリープ防止 */
+async function acquireWakeLock() {
+  try {
+    if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen");
+  } catch (e) {}
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && playing) acquireWakeLock();
+});
+
+/* ─────────────────────────────────────
+   ソフトキーボードの直上にドックを固定
+───────────────────────────────────── */
+function layoutDock() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const offset = window.innerHeight - vv.height - vv.offsetTop;
+  dock.style.transform = "translate3d(0," + (-Math.max(0, Math.round(offset))) + "px,0)";
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener("resize", layoutDock);
+  visualViewport.addEventListener("scroll", layoutDock);
+  layoutDock();
+}
+
+/* ─────────────────────────────────────
+   ドロワー・フォントサイズ・初期値
+───────────────────────────────────── */
+const drawer = document.getElementById("drawer");
+document.getElementById("openDrawer").addEventListener("click", () => drawer.classList.add("show"));
+function closeDrawer() { drawer.classList.remove("show"); }
+drawer.addEventListener("click", e => { if (e.target === drawer) closeDrawer(); });
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  ed.value = "";
+  afterEdit();
+  closeDrawer();
+});
+
+/* テーマ切替 */
+const themeBtns = [...document.querySelectorAll(".themeBtn")];
+function applyTheme(name) {
+  if (name) document.documentElement.dataset.theme = name;
+  else delete document.documentElement.dataset.theme;
+  themeBtns.forEach(b => b.classList.toggle("active", (b.dataset.theme || "") === (name || "")));
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  document.querySelector('meta[name="theme-color"]').setAttribute("content", bg);
+  if (store) { try { store.setItem(THEME_KEY, name || ""); } catch (e) {} }
+}
+themeBtns.forEach(b => b.addEventListener("click", () => applyTheme(b.dataset.theme)));
+applyTheme(store ? (store.getItem(THEME_KEY) || "") : "");
+
+let fontSize = 16;
+if (store) {
+  const f = parseInt(store.getItem(FONT_KEY) || "16", 10);
+  if (f >= 16 && f <= 24) fontSize = f;
+}
+function applyFont() {
+  ed.style.fontSize = fontSize + "px";
+  if (store) { try { store.setItem(FONT_KEY, String(fontSize)); } catch (e) {} }
+}
+bindTap(document.getElementById("fontMinus"), () => {
+  fontSize = Math.max(16, fontSize - 1); applyFont(); // 16px未満はiOSが自動ズームするため下限16
+});
+bindTap(document.getElementById("fontPlus"), () => {
+  fontSize = Math.min(24, fontSize + 1); applyFont();
+});
+applyFont();
+
+/* 起動時: 保存があれば復元、なければデモを入れる */
+let initial = null;
+if (store) { try { initial = store.getItem(SAVE_KEY); } catch (e) {} }
+ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
+hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
+</script>
+</body>
+</html>
