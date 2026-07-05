@@ -795,6 +795,7 @@ const KEYS = [
   ['.',  '.',   null],
   [',',  ',',   null],
   ['""', '"',   1],
+  ['!',  '!',   null],
   ['#',  '#',   null],
   [':',  ':',   null],
   ['[]', '[ ]', 1],
@@ -2398,13 +2399,74 @@ function themeColor(name) {
 }
 
 function themedVisualOptions(opts = {}) {
+  const cool = themeColor("--cool");
+  const hot = themeColor("--hot");
+  const bg = themeColor("--bg");
   return {
-    color: themeColor("--cool"),
-    stroke: themeColor("--cool"),
-    fill: themeColor("--hot"),
-    background: themeColor("--bg"),
+    color: cool,
+    stroke: cool,
+    strokeStyle: cool,
+    lineColor: cool,
+    waveColor: cool,
+    fill: hot,
+    fillStyle: hot,
+    background: bg,
+    backgroundColor: bg,
     ...opts
   };
+}
+
+function parseColorParts(value) {
+  if (typeof value !== "string") return null;
+  const text = value.trim().toLowerCase();
+  const hex = text.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/);
+  if (hex) {
+    const color = hex[1].length === 4 ? hex[1].slice(0, 3) :
+      hex[1].length === 8 ? hex[1].slice(0, 6) : hex[1];
+    const raw = color.length === 3
+      ? color.split("").map(ch => ch + ch).join("")
+      : color;
+    return {
+      r: parseInt(raw.slice(0, 2), 16),
+      g: parseInt(raw.slice(2, 4), 16),
+      b: parseInt(raw.slice(4, 6), 16)
+    };
+  }
+  const rgb = text.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*(?:,|\s)\s*(\d+(?:\.\d+)?)\s*(?:,|\s)\s*(\d+(?:\.\d+)?)/);
+  if (rgb) {
+    return {
+      r: Number(rgb[1]),
+      g: Number(rgb[2]),
+      b: Number(rgb[3])
+    };
+  }
+  return null;
+}
+
+function shouldThemeVisualColor(value) {
+  const parts = parseColorParts(value);
+  if (!parts) return false;
+  const cool = parseColorParts(themeColor("--cool"));
+  if (cool && Math.abs(parts.r - cool.r) < 2 && Math.abs(parts.g - cool.g) < 2 && Math.abs(parts.b - cool.b) < 2) return false;
+  // Strudelのscope/pianoroll既定色は青〜シアン系。CSSでは届かないためテーマ色へ寄せる。
+  return parts.b >= 150 && parts.g >= 120 && parts.r <= 140;
+}
+
+function themedCanvasContext(ctx) {
+  return new Proxy(ctx, {
+    get(target, prop) {
+      const value = target[prop];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set(target, prop, value) {
+      if ((prop === "strokeStyle" || prop === "fillStyle") && shouldThemeVisualColor(value)) {
+        target[prop] = themeColor("--cool");
+        return true;
+      }
+      target[prop] = value;
+      return true;
+    }
+  });
 }
 
 function allocVisualCanvas() {
@@ -2418,7 +2480,7 @@ function allocVisualCanvas() {
   visCount++;
   visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
   layoutVisualCanvases();
-  return c.getContext("2d");
+  return themedCanvasContext(c.getContext("2d"));
 }
 
 function layoutVisualCanvases() {
