@@ -318,6 +318,12 @@
   }
   #songSave{background:var(--cool);color:#062a25;border-color:transparent}
   #songSaveAs{background:var(--surface2);color:var(--text)}
+  #songUtilityButtons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+  #songExport,#songImport,#songShare{
+    height:36px;border-radius:10px;font-size:12px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  #songImportFile{display:none}
   #songList{display:grid;gap:8px}
   .songRow{
     display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
@@ -429,6 +435,12 @@
         <button id="songSave">保存</button>
         <button id="songSaveAs">別名保存</button>
       </div>
+      <div id="songUtilityButtons">
+        <button id="songExport">書出</button>
+        <button id="songImport">読込</button>
+        <button id="songShare">リンク</button>
+      </div>
+      <input id="songImportFile" type="file" accept="application/json,.json">
       <div id="songList"></div>
     </div>
     <h2>パターン集</h2>
@@ -870,6 +882,10 @@ renderSnaps();
 const songTitleInput = document.getElementById("songTitle");
 const songSaveBtn = document.getElementById("songSave");
 const songSaveAsBtn = document.getElementById("songSaveAs");
+const songExportBtn = document.getElementById("songExport");
+const songImportBtn = document.getElementById("songImport");
+const songShareBtn = document.getElementById("songShare");
+const songImportFile = document.getElementById("songImportFile");
 const songListEl = document.getElementById("songList");
 let currentSongId = "";
 let songLibrary = [];
@@ -936,6 +952,85 @@ function formatSongDate(ms) {
 
 function cloneSnaps() {
   try { return JSON.parse(JSON.stringify(snaps || {})); } catch (e) { return {}; }
+}
+
+function cleanSnapshots(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+}
+
+function normalizeSongRecord(raw, fallbackId) {
+  if (!raw || typeof raw !== "object") return null;
+  const code = typeof raw.code === "string" ? raw.code : "";
+  if (!code.trim()) return null;
+  const now = Date.now();
+  const theme = ["", "greenText", "archBtw"].includes(raw.theme) ? raw.theme : "";
+  const profile = SOUND_PROFILES.some(p => p.id === raw.soundProfile) ? raw.soundProfile : SOUND_PROFILES[0].id;
+  return {
+    id: String(raw.id || fallbackId || makeSongId()).slice(0, 90),
+    title: String(raw.title || "Untitled").trim().slice(0, 60) || "Untitled",
+    code,
+    theme,
+    soundProfile: profile,
+    snapshots: cleanSnapshots(raw.snapshots),
+    createdAt: Number(raw.createdAt) || now,
+    updatedAt: Number(raw.updatedAt) || now
+  };
+}
+
+function normalizeImportedSongs(payload) {
+  const list = Array.isArray(payload) ? payload :
+    Array.isArray(payload && payload.songs) ? payload.songs :
+    payload && payload.code ? [payload] : [];
+  return list.map(song => normalizeSongRecord(song)).filter(Boolean);
+}
+
+function exportFileName() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return "strudel-pocket-songs-" + y + m + day + "-" + h + min + ".json";
+}
+
+function downloadJson(payload, filename) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function encodeBase64Url(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  bytes.forEach(byte => { bin += String.fromCharCode(byte); });
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeBase64Url(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  const bin = atob(padded);
+  const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function currentSongDraft() {
+  return {
+    title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
+    code: ed.value,
+    theme: document.documentElement.dataset.theme || "",
+    soundProfile,
+    snapshots: cloneSnaps(),
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
 }
 
 function setCurrentSong(id) {
@@ -1052,8 +1147,74 @@ async function removeSong(song) {
   }
 }
 
+async function exportSongs() {
+  try {
+    const songs = (await getAllSongs()).filter(song => song && song.code);
+    if (!songs.length) { setStatus("書き出す曲がありません", playing ? "playing" : "ready"); return; }
+    downloadJson({ version: 1, exportedAt: new Date().toISOString(), songs }, exportFileName());
+    setStatus(songs.length + "曲を書き出し", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("書き出し失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+async function importSongsFromFile(file) {
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    const imported = normalizeImportedSongs(payload);
+    if (!imported.length) { setStatus("読み込める曲がありません", playing ? "playing" : "ready"); return; }
+    for (const song of imported) await putSong(song);
+    await refreshSongList();
+    setStatus(imported.length + "曲を読み込み", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("読み込み失敗", playing ? "playing" : "error");
+    showError(String(e && e.message ? e.message : e));
+  } finally {
+    songImportFile.value = "";
+  }
+}
+
+async function shareCurrentSong() {
+  if (!ed.value.trim()) { setStatus("空の曲はリンク化しません", playing ? "playing" : "ready"); return; }
+  const draft = currentSongDraft();
+  const hash = "#song=" + encodeBase64Url(JSON.stringify(draft));
+  const url = location.origin + location.pathname + hash;
+  history.replaceState(null, "", hash);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: draft.title, text: "Strudel Pocket", url });
+      setStatus("共有を開きました", playing ? "playing" : "ready");
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    setStatus("リンクをコピー", playing ? "playing" : "ready");
+  } catch (e) {
+    setStatus("URLにリンクを反映", playing ? "playing" : "ready");
+  }
+}
+
+function readSharedSong() {
+  if (!location.hash.startsWith("#song=")) return null;
+  try {
+    return normalizeSongRecord(JSON.parse(decodeBase64Url(location.hash.slice(6))), makeSongId());
+  } catch (e) {
+    showError("共有リンクを読み込めませんでした");
+    return null;
+  }
+}
+
 bindTap(songSaveBtn, () => saveCurrentSong(false));
 bindTap(songSaveAsBtn, () => saveCurrentSong(true));
+bindTap(songExportBtn, exportSongs);
+bindTap(songImportBtn, () => songImportFile.click());
+bindTap(songShareBtn, shareCurrentSong);
+songImportFile.addEventListener("change", () => importSongsFromFile(songImportFile.files && songImportFile.files[0]));
 refreshSongList();
 
 const cardsEl = document.getElementById("cards");
@@ -1598,10 +1759,26 @@ bindTap(document.getElementById("fontPlus"), () => {
 });
 applyFont();
 
-/* 起動時: 保存があれば復元、なければデモを入れる */
+/* 起動時: 共有リンク、保存済みコード、デモの順で復元 */
+const sharedSong = readSharedSong();
 let initial = null;
 if (store) { try { initial = store.getItem(SAVE_KEY); } catch (e) {} }
-ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
+if (sharedSong) {
+  setCurrentSong("");
+  songTitleInput.value = sharedSong.title || "";
+  snaps = cleanSnapshots(sharedSong.snapshots);
+  persistSnaps();
+  renderSnaps();
+  applyTheme(sharedSong.theme || "");
+  if (SOUND_PROFILES.some(p => p.id === sharedSong.soundProfile)) {
+    soundProfile = sharedSong.soundProfile;
+    if (store) { try { store.setItem(SOUND_PROFILE_KEY, soundProfile); } catch (e) {} }
+    renderSoundProfiles();
+  }
+  ed.value = sharedSong.code;
+} else {
+  ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
+}
 hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
