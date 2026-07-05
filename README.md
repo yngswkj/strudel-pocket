@@ -19,6 +19,7 @@
 - **視覚化**: `.pianoroll()` や `.scope()` をコード下の専用エリアに表示(複数可)
 - **テーマ**: Pocket / greenText / archBtw(本家テーマの配色を移植)
 - **サウンドプロファイル**: 軽量 / 本家相当を切り替え、追加サンプルマップを遅延登録
+- **サンプルキャッシュ**: 一度取得した許可済みサンプルを再利用し、ドロワーから件数確認・削除
 - **曲ライブラリ**: 作成した曲を IndexedDB に保存・呼び出し。テーマ、サウンドプロファイル、A/B/C/D スナップも保持
 - **プリセットパターン集**と A/B/C/D スナップショット、自動保存(localStorage)
 - **PWA 対応**: ホーム画面追加用の manifest とアプリシェルキャッシュ
@@ -32,11 +33,11 @@ strudel-pocket/
 ├── index.html            # アプリ本体(HTML + CSS + JS)
 ├── manifest.webmanifest  # PWA manifest
 ├── README.md
-├── sw.js                 # Service Worker(アプリシェルのみキャッシュ)
+├── sw.js                 # Service Worker(アプリシェル + サンプルキャッシュ)
 └── LICENSE               # AGPL-3.0
 ```
 
-Service Worker はアプリのシェルだけをキャッシュします。Strudel 本体やサンプル音源は外部 CDN から取得するため、初回再生や音源取得にはネット接続が必要です。サウンドプロファイルはサンプルマップを登録し、音声ファイル本体は必要になったタイミングで Strudel / superdough が取得します。
+Service Worker はアプリシェルをキャッシュし、HTML は更新を優先して取得します。サウンドプロファイルはサンプルマップを登録し、音声ファイル本体は必要になったタイミングで Strudel / superdough が取得します。一度取得した許可済みサンプル(Strudel CDN / GitHub raw / jsDelivr)は Cache Storage に保存され、ドロワーから件数確認と削除ができます。
 
 ## ライセンス
 

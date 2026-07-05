@@ -277,6 +277,16 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
     font-family:var(--mono);font-size:12px;
   }
+  #sampleCacheControls{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;
+    margin:0 2px 18px;
+  }
+  #sampleCacheStatus{min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sampleCacheRefresh,#sampleCacheClear{
+    height:32px;border-radius:8px;padding:0 8px;font-size:12px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  #sampleCacheClear{color:var(--warn)}
   #snapSlots{
     display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;margin:0 2px 18px;
@@ -405,6 +415,11 @@
     <div id="soundProfiles"></div>
     <div id="soundStatus">軽量サウンド</div>
     <div id="soundPalette"></div>
+    <div id="sampleCacheControls">
+      <div id="sampleCacheStatus">サンプルキャッシュ未確認</div>
+      <button id="sampleCacheRefresh">確認</button>
+      <button id="sampleCacheClear">削除</button>
+    </div>
     <h2>スナップ</h2>
     <div id="snapSlots"></div>
     <h2>曲</h2>
@@ -469,6 +484,7 @@ const CURRENT_SONG_KEY = "strudel-pocket-current-song";
 const DB_NAME = "strudel-pocket-db";
 const DB_VERSION = 1;
 const SONG_STORE = "songs";
+const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
 
 /* ─────────────────────────────────────
    プリセット
@@ -669,6 +685,9 @@ renderChips();
 const soundProfilesEl = document.getElementById("soundProfiles");
 const soundStatusEl = document.getElementById("soundStatus");
 const soundPaletteEl = document.getElementById("soundPalette");
+const sampleCacheStatusEl = document.getElementById("sampleCacheStatus");
+const sampleCacheRefreshBtn = document.getElementById("sampleCacheRefresh");
+const sampleCacheClearBtn = document.getElementById("sampleCacheClear");
 let soundProfile = SOUND_PROFILES[0].id;
 if (store) {
   const savedSoundProfile = store.getItem(SOUND_PROFILE_KEY);
@@ -745,6 +764,44 @@ async function loadSoundProfile(profileId, opts = {}) {
 }
 renderSoundProfiles();
 renderSoundPalette();
+
+async function sampleCacheEntries() {
+  if (!("caches" in window)) return null;
+  const cache = await caches.open(SAMPLE_CACHE_NAME);
+  return cache.keys();
+}
+
+async function refreshSampleCacheStatus() {
+  try {
+    const entries = await sampleCacheEntries();
+    if (!entries) {
+      sampleCacheStatusEl.textContent = "サンプルキャッシュ非対応";
+      return;
+    }
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ " + entries.length + "件";
+  } catch (e) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ確認失敗";
+  }
+}
+
+async function clearSampleCache() {
+  if (!("caches" in window)) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ非対応";
+    return;
+  }
+  try {
+    await caches.delete(SAMPLE_CACHE_NAME);
+    await refreshSampleCacheStatus();
+    setStatus("サンプルキャッシュ削除", playing ? "playing" : "ready");
+  } catch (e) {
+    sampleCacheStatusEl.textContent = "サンプルキャッシュ削除失敗";
+    showError(String(e && e.message ? e.message : e));
+  }
+}
+
+bindTap(sampleCacheRefreshBtn, refreshSampleCacheStatus);
+bindTap(sampleCacheClearBtn, clearSampleCache);
+refreshSampleCacheStatus();
 
 const keysEl = document.getElementById("keys");
 KEYS.forEach(([text, label, caret]) => {
