@@ -25,6 +25,8 @@
     --hot:#ff7a45;   /* 再生・アクション */
     --cool:#3fd6c0;  /* フェーダー・準備OK */
     --warn:#ff5470;  /* エラー */
+    --visual-bg:rgba(0,0,0,.3);
+    --visual-glow:rgba(63,214,192,.22);
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
   }
@@ -32,10 +34,12 @@
   :root[data-theme="greenText"]{
     --bg:#000000;--surface:#0a0f08;--surface2:#111a0d;--line:#1e2b18;
     --text:#56bd2a;--muted:#54636d;--hot:#8ed675;--cool:#56bd2a;
+    --visual-bg:rgba(3,18,0,.7);--visual-glow:rgba(86,189,42,.28);
   }
   :root[data-theme="archBtw"]{
     --bg:#000000;--surface:#050d13;--surface2:#0a161e;--line:#12293a;
     --text:#52d0fa;--muted:rgba(113,208,250,.4);--hot:#52d0fa;--cool:#52d0fa;
+    --visual-bg:rgba(0,14,24,.72);--visual-glow:rgba(82,208,250,.28);
   }
   /* Strudelの視覚化(.pianoroll()等)が作る全画面キャンバスをエディタの背面に敷く。
      ヘッダーとドックは不透明なので、エディタ領域だけ透けて見える */
@@ -129,7 +133,17 @@
   #visuals.show{display:flex}
   #visuals canvas{
     flex:1;min-width:0;height:100%;border-radius:10px;
-    background:rgba(0,0,0,.3);border:1px solid var(--line);
+    background:
+      linear-gradient(180deg,var(--visual-glow),transparent 42%),
+      var(--visual-bg);
+    border:1px solid var(--cool);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.02), 0 0 14px var(--visual-glow);
+  }
+  #activeNoteOverlay{position:fixed;inset:0;z-index:9;pointer-events:none;overflow:hidden}
+  .activeNoteBox{
+    position:fixed;border:1.5px solid var(--hot);border-radius:4px;
+    background:color-mix(in srgb,var(--hot) 14%,transparent);
+    box-shadow:0 0 8px var(--hot);
   }
 
   #errbar{
@@ -497,6 +511,7 @@
 <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
   autocomplete="off" inputmode="email" lang="en"
   placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+<div id="activeNoteOverlay" aria-hidden="true"></div>
 
 <div id="dock">
   <div id="visuals"></div>
@@ -619,6 +634,7 @@ const fader = document.getElementById("fader");
 const scrubVal = document.getElementById("scrubVal");
 const playBtn = document.getElementById("playBtn");
 const updateBtn = document.getElementById("updateBtn");
+const activeNoteOverlay = document.getElementById("activeNoteOverlay");
 const soundPasteBar = document.getElementById("soundPasteBar");
 const soundPasteText = document.getElementById("soundPasteText");
 const soundPasteBtn = document.getElementById("soundPasteBtn");
@@ -2262,6 +2278,9 @@ document.addEventListener("selectionchange", () => {
 });
 ed.addEventListener("pointerup", updateScrubber);
 ed.addEventListener("keyup", updateScrubber);
+ed.addEventListener("scroll", () => {
+  if (playing) drawActiveNoteOverlay();
+});
 ed.addEventListener("blur", () => {
   // フェーダー操作へ移った場合は残す
   setTimeout(() => {
@@ -2368,6 +2387,22 @@ function setVisualVisible(on) {
 const visualsEl = document.getElementById("visuals");
 const visPool = [];  // 生成済みキャンバス(評価をまたいで再利用)
 let visCount = 0;    // 今回の評価で割り当てた数
+let activeNoteTimer = null;
+let activeNoteStep = 0;
+
+function themeColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function themedVisualOptions(opts = {}) {
+  return {
+    color: themeColor("--cool"),
+    stroke: themeColor("--cool"),
+    fill: themeColor("--hot"),
+    background: themeColor("--bg"),
+    ...opts
+  };
+}
 
 function allocVisualCanvas() {
   let c = visPool[visCount];
@@ -2376,6 +2411,7 @@ function allocVisualCanvas() {
     visualsEl.appendChild(c);
     visPool.push(c);
   }
+  c.dataset.theme = document.documentElement.dataset.theme || "pocket";
   visCount++;
   visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
   layoutVisualCanvases();
@@ -2391,6 +2427,84 @@ function layoutVisualCanvases() {
   });
 }
 window.addEventListener("resize", () => setTimeout(layoutVisualCanvases, 250));
+
+function collectActiveNoteRanges() {
+  const ranges = [];
+  const text = ed.value;
+  const callRe = /\b(?:s|note|n)\(\s*"([^"]*)"/g;
+  let call;
+  while ((call = callRe.exec(text))) {
+    const quoteOffset = call[0].indexOf('"') + 1;
+    const base = call.index + quoteOffset;
+    const tokenRe = /[A-Za-z0-9_#:+.-]+/g;
+    let token;
+    while ((token = tokenRe.exec(call[1]))) {
+      if (token[0] === "~") continue;
+      ranges.push({ start: base + token.index, end: base + token.index + token[0].length });
+    }
+  }
+  return ranges;
+}
+
+function makeEditorRectMirror() {
+  const cs = getComputedStyle(ed);
+  const mirror = document.createElement("div");
+  mirror.textContent = ed.value || "\n";
+  const r = ed.getBoundingClientRect();
+  Object.assign(mirror.style, {
+    position: "fixed", left: r.left + "px", top: r.top + "px",
+    width: r.width + "px", height: r.height + "px", zIndex: "-1",
+    boxSizing: "border-box", font: cs.font, lineHeight: cs.lineHeight,
+    letterSpacing: cs.letterSpacing, padding: cs.padding, border: "none",
+    whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "auto",
+    color: "transparent", background: "transparent", opacity: "0.01"
+  });
+  mirror.scrollTop = ed.scrollTop;
+  mirror.scrollLeft = ed.scrollLeft;
+  document.body.appendChild(mirror);
+  return mirror;
+}
+
+function drawActiveNoteOverlay() {
+  activeNoteOverlay.textContent = "";
+  if (!playing || document.activeElement !== ed && !ed.value) return;
+  const ranges = collectActiveNoteRanges();
+  if (!ranges.length) return;
+  const target = ranges[activeNoteStep % ranges.length];
+  activeNoteStep++;
+  const mirror = makeEditorRectMirror();
+  const node = mirror.firstChild;
+  const er = ed.getBoundingClientRect();
+  if (node && node.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange();
+    range.setStart(node, Math.min(target.start, node.length));
+    range.setEnd(node, Math.min(target.end, node.length));
+    Array.from(range.getClientRects()).forEach(rect => {
+      if (rect.bottom < er.top || rect.top > er.bottom || rect.right < er.left || rect.left > er.right) return;
+      const box = document.createElement("div");
+      box.className = "activeNoteBox";
+      box.style.left = Math.max(rect.left, er.left) + "px";
+      box.style.top = Math.max(rect.top, er.top) + "px";
+      box.style.width = Math.max(8, Math.min(rect.right, er.right) - Math.max(rect.left, er.left)) + "px";
+      box.style.height = Math.max(16, rect.height) + "px";
+      activeNoteOverlay.appendChild(box);
+    });
+  }
+  mirror.remove();
+}
+
+function startActiveNoteOverlay() {
+  stopActiveNoteOverlay();
+  activeNoteStep = 0;
+  drawActiveNoteOverlay();
+  activeNoteTimer = setInterval(drawActiveNoteOverlay, Math.max(180, Math.min(520, 30000 / bpm)));
+}
+
+function stopActiveNoteOverlay() {
+  if (activeNoteTimer) clearInterval(activeNoteTimer);
+  activeNoteTimer = null;
+  activeNoteOverlay.textContent = "";
+}
 
 function finishVisuals() {
   while (visPool.length > visCount) visPool.pop().remove(); // 使われなかった余りを撤去
@@ -2408,7 +2522,7 @@ function patchVisuals() {
   // pianoroll: ctxの差し替えだけでよい(描画は本体の共通ループが回す)
   const origRoll = P.pianoroll;
   P.pianoroll = function (opts = {}) {
-    return origRoll.call(this, { ctx: allocVisualCanvas(), ...opts });
+    return origRoll.call(this, { ...themedVisualOptions(opts), ctx: allocVisualCanvas() });
   };
   // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
   // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
@@ -2417,7 +2531,7 @@ function patchVisuals() {
     if (!orig) return;
     P[name] = function (opts = {}) {
       const ctx = allocVisualCanvas();
-      return orig.call(this, { ctx, id: 1 + visCount, ...opts });
+      return orig.call(this, { ...themedVisualOptions(opts), ctx, id: 1 + visCount, ...opts });
     };
   });
 }
@@ -2454,6 +2568,7 @@ async function runEval() {
       clearError();
       setStatus("再生中", "playing");
       setTransport(true);
+      startActiveNoteOverlay();
       acquireWakeLock();
     } catch (e) {
       if (mySeq !== evalSeq) return;
@@ -2480,6 +2595,7 @@ function stopAll(statusText) {
   setTransport(false);
   releaseWakeLock();
   setVisualVisible(false);
+  stopActiveNoteOverlay();
   setTimeout(clearVisual, 300); // 最終フレームの描画が終わった頃に中身も消しておく
 }
 
