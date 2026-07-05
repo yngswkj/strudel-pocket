@@ -6,6 +6,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e1116">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Strudel Pocket">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <title>Strudel Pocket</title>
 <!-- Strudel core (web bundle). CDNから読み込むためオフラインでは動きません -->
 <script id="strudel-lib" src="https://unpkg.com/@strudel/web@1.3.0"></script>
@@ -911,6 +916,12 @@ window.addEventListener("load", () => {
     showError("Strudel本体を読み込めませんでした。このファイルをブラウザで直接開くか、Vercel等でホストしてください。");
   }
 });
+
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 
 let evalSeq = 0;              // 停止・再評価のたびに進める世代番号
 let wantPlaying = false;      // ユーザーが望んでいる状態(true=再生)
