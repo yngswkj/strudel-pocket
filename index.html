@@ -2267,6 +2267,8 @@ if (sharedSong) {
   renderSnaps();
   applyTheme(sharedSong.theme || "");
   ed.value = sharedSong.code;
+  if (store) { try { store.setItem(SAVE_KEY, ed.value); } catch (e) {} }
+  history.replaceState(null, "", location.pathname + location.search);
 } else {
   ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
 }

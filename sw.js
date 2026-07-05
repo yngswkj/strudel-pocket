@@ -36,28 +36,29 @@ self.addEventListener("fetch", event => {
 
   const url = new URL(event.request.url);
   if (SAMPLE_ORIGINS.has(url.origin)) {
-    event.respondWith(cacheFirst(event.request, SAMPLE_CACHE_NAME));
+    event.respondWith(cacheFirst(event.request, SAMPLE_CACHE_NAME, event));
     return;
   }
 
   if (url.origin !== location.origin) return;
 
   if (event.request.mode === "navigate" || url.pathname.endsWith("/") || url.pathname.endsWith("/index.html")) {
-    event.respondWith(networkFirstShell(event.request));
+    event.respondWith(networkFirstShell(event.request, event));
     return;
   }
 
-  event.respondWith(cacheFirst(event.request, SHELL_CACHE_NAME));
+  event.respondWith(cacheFirst(event.request, SHELL_CACHE_NAME, event));
 });
 
-function cacheFirst(request, cacheName) {
+function cacheFirst(request, cacheName, event) {
   if (request.headers.has("range")) return fetch(request);
   return caches.open(cacheName).then(cache =>
     cache.match(request).then(cached => {
       if (cached) return cached;
       return fetch(request).then(response => {
         if (response && response.status !== 206 && (response.ok || response.type === "opaque")) {
-          cache.put(request, response.clone()).catch(() => {});
+          const put = cache.put(request, response.clone()).catch(() => {});
+          if (event) event.waitUntil(put);
         }
         return response;
       });
@@ -65,12 +66,15 @@ function cacheFirst(request, cacheName) {
   );
 }
 
-function networkFirstShell(request) {
+function networkFirstShell(request, event) {
   // GitHub PagesのHTTPキャッシュ(max-age=600)を無視して常に再検証し、更新を即配信する
   return fetch(new Request(request, { cache: "no-cache" }))
     .then(response => {
       if (response && response.ok) {
-        caches.open(SHELL_CACHE_NAME).then(cache => cache.put(request, response.clone())).catch(() => {});
+        const put = caches.open(SHELL_CACHE_NAME)
+          .then(cache => cache.put(request, response.clone()))
+          .catch(() => {});
+        if (event) event.waitUntil(put);
       }
       return response;
     })
