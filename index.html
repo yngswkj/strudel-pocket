@@ -281,6 +281,24 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
+  #playSettings{display:grid;gap:10px;margin:0 2px 18px}
+  .settingToggle{
+    display:flex;align-items:center;gap:10px;min-height:42px;
+    padding:0 12px;border-radius:10px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+    font-size:13px;font-weight:700;
+  }
+  .settingToggle input{width:20px;height:20px;accent-color:var(--cool)}
+  .settingRange{
+    display:grid;gap:8px;padding:10px 12px;border-radius:10px;
+    background:var(--surface2);border:1px solid var(--line);
+  }
+  .settingRange label{
+    display:flex;justify-content:space-between;gap:12px;
+    font-size:13px;font-weight:700;color:var(--text);
+  }
+  .settingRange span{font-family:var(--mono);color:var(--cool)}
+  .settingRange input{width:100%;accent-color:var(--cool)}
   #soundStatus{font-size:12px;color:var(--muted);margin:0 4px 10px}
   /* サウンド検索(スマホ前提: 大きめのタップ領域と横スクロールのフィルタ) */
   #soundSearch{
@@ -470,6 +488,7 @@
     <button class="hbtn compact" id="redoBtn" aria-label="やり直す" disabled>↷</button>
     <button class="hbtn compact" id="fontMinus" aria-label="文字を小さく">A−</button>
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
+    <button class="hbtn compact" id="updateBtn" aria-label="コードを再評価">↻</button>
   </div>
   <button class="hbtn" id="openDrawer">設定</button>
   <button id="playBtn" aria-label="再生">▶</button>
@@ -557,6 +576,21 @@
           <button class="themeBtn" data-theme="greenText">greenText</button>
           <button class="themeBtn" data-theme="archBtw">archBtw</button>
         </div>
+        <h2>再生設定</h2>
+        <div id="playSettings">
+          <label class="settingToggle">
+            <input id="autoUpdateToggle" type="checkbox">
+            <span>編集中に自動更新</span>
+          </label>
+          <label class="settingToggle">
+            <input id="backgroundPlayToggle" type="checkbox">
+            <span>バックグラウンド再生</span>
+          </label>
+          <div class="settingRange">
+            <label for="bpmSlider">BPM <span id="bpmValue">120</span></label>
+            <input id="bpmSlider" type="range" min="40" max="220" step="1">
+          </div>
+        </div>
       </section>
     </div>
   </div>
@@ -584,10 +618,15 @@ const scrub = document.getElementById("scrub");
 const fader = document.getElementById("fader");
 const scrubVal = document.getElementById("scrubVal");
 const playBtn = document.getElementById("playBtn");
+const updateBtn = document.getElementById("updateBtn");
 const soundPasteBar = document.getElementById("soundPasteBar");
 const soundPasteText = document.getElementById("soundPasteText");
 const soundPasteBtn = document.getElementById("soundPasteBtn");
 const soundPasteClear = document.getElementById("soundPasteClear");
+const autoUpdateToggle = document.getElementById("autoUpdateToggle");
+const backgroundPlayToggle = document.getElementById("backgroundPlayToggle");
+const bpmSlider = document.getElementById("bpmSlider");
+const bpmValueEl = document.getElementById("bpmValue");
 
 /* ─────────────────────────────────────
    状態
@@ -598,6 +637,9 @@ let wakeLock = null;
 let scrubbing = false;
 let tok = null; // {start,end,hasDot}
 let copiedSoundName = "";
+let autoUpdateEnabled = true;
+let backgroundPlayEnabled = false;
+let bpm = 120;
 
 /* ─────────────────────────────────────
    ストレージ(使えない環境ではメモリのみ)
@@ -617,10 +659,18 @@ const MODE_KEY = "strudel-pocket-chip-mode";
 const DRAWER_TAB_KEY = "strudel-pocket-drawer-tab";
 const SNAP_KEY = "strudel-pocket-snaps";
 const CURRENT_SONG_KEY = "strudel-pocket-current-song";
+const AUTO_UPDATE_KEY = "strudel-pocket-auto-update";
+const BACKGROUND_PLAY_KEY = "strudel-pocket-background-play";
+const BPM_KEY = "strudel-pocket-bpm";
 const DB_NAME = "strudel-pocket-db";
 const DB_VERSION = 1;
 const SONG_STORE = "songs";
 const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
+
+autoUpdateEnabled = store ? store.getItem(AUTO_UPDATE_KEY) !== "0" : true;
+backgroundPlayEnabled = store ? store.getItem(BACKGROUND_PLAY_KEY) === "1" : false;
+bpm = store ? parseInt(store.getItem(BPM_KEY) || "120", 10) : 120;
+if (!Number.isFinite(bpm) || bpm < 40 || bpm > 220) bpm = 120;
 
 /* ─────────────────────────────────────
    プリセット
@@ -1943,6 +1993,80 @@ ed.addEventListener("keydown", e => {
   }
 });
 
+function setAutoUpdate(enabled) {
+  autoUpdateEnabled = enabled;
+  autoUpdateToggle.checked = enabled;
+  if (store) { try { store.setItem(AUTO_UPDATE_KEY, enabled ? "1" : "0"); } catch (e) {} }
+  setStatus(enabled ? "自動更新オン" : "自動更新オフ", playing ? "playing" : "ready");
+}
+
+function setBackgroundPlay(enabled) {
+  backgroundPlayEnabled = enabled;
+  backgroundPlayToggle.checked = enabled;
+  if (store) { try { store.setItem(BACKGROUND_PLAY_KEY, enabled ? "1" : "0"); } catch (e) {} }
+  setStatus(enabled ? "バックグラウンド再生オン" : "非アクティブ時に停止", playing ? "playing" : "ready");
+}
+
+function formatCpmFromBpm(value) {
+  return String(parseFloat((value / 4).toFixed(2)));
+}
+
+function readBpmFromCode() {
+  const m = ed.value.match(/setcpm\(\s*([0-9]+(?:\.[0-9]+)?)\s*\)/);
+  if (!m) return null;
+  const value = Math.round(parseFloat(m[1]) * 4);
+  return Number.isFinite(value) ? Math.max(40, Math.min(220, value)) : null;
+}
+
+function updateBpmControls(value) {
+  bpm = Math.max(40, Math.min(220, Math.round(value)));
+  bpmSlider.value = String(bpm);
+  bpmValueEl.textContent = String(bpm);
+  if (store) { try { store.setItem(BPM_KEY, String(bpm)); } catch (e) {} }
+}
+
+function applyBpmToCode() {
+  const line = "setcpm(" + formatCpmFromBpm(bpm) + ")";
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const re = /^(\s*)setcpm\(\s*[0-9]+(?:\.[0-9]+)?\s*\)/m;
+  const m = text.match(re);
+  if (m) {
+    const start = m.index || 0;
+    const next = text.slice(0, start) + m[1] + line + text.slice(start + m[0].length);
+    const delta = next.length - text.length;
+    ed.value = next;
+    if (s >= start + m[0].length) {
+      ed.selectionStart = s + delta;
+      ed.selectionEnd = e + delta;
+    } else {
+      ed.selectionStart = s;
+      ed.selectionEnd = e;
+    }
+  } else {
+    const prefix = line + (text.trim() ? "\n" : "");
+    ed.value = prefix + text;
+    ed.selectionStart = s + prefix.length;
+    ed.selectionEnd = e + prefix.length;
+  }
+  afterEdit();
+  updateScrubber();
+}
+
+function syncBpmFromCode() {
+  updateBpmControls(readBpmFromCode() || bpm);
+}
+
+autoUpdateToggle.checked = autoUpdateEnabled;
+backgroundPlayToggle.checked = backgroundPlayEnabled;
+updateBpmControls(bpm);
+autoUpdateToggle.addEventListener("change", () => setAutoUpdate(autoUpdateToggle.checked));
+backgroundPlayToggle.addEventListener("change", () => setBackgroundPlay(backgroundPlayToggle.checked));
+bpmSlider.addEventListener("input", () => {
+  updateBpmControls(parseInt(bpmSlider.value, 10));
+  applyBpmToCode();
+});
+
 /* ─────────────────────────────────────
    編集後の共通処理(自動保存 + 再生中なら再評価)
 ───────────────────────────────────── */
@@ -1957,7 +2081,11 @@ function afterEdit() {
   recordHistory();
   if (playing) {
     clearTimeout(evalTimer);
-    evalTimer = setTimeout(runEval, 300);
+    if (autoUpdateEnabled) {
+      evalTimer = setTimeout(runEval, 300);
+    } else {
+      setStatus("編集済み(更新待ち)", "playing");
+    }
   }
 }
 ed.addEventListener("input", afterEdit);
@@ -2020,6 +2148,7 @@ document.getElementById("caretR").addEventListener("pointerdown", e => {
 // ヘッダーの#hscroll内にあるためスワイプ(A−/A＋を出す操作)と区別する
 bindTap(undoBtn, () => applyHistory(-1));
 bindTap(redoBtn, () => applyHistory(1));
+bindTap(updateBtn, () => runEval());
 
 // PCでは縦ホイールでも#hscrollを横に送れるようにする
 document.getElementById("hscroll").addEventListener("wheel", e => {
@@ -2335,7 +2464,7 @@ async function runEval() {
   });
 }
 
-function stopAll() {
+function stopAll(statusText) {
   clearTimeout(evalTimer); // 予約済みの再評価をキャンセル
   evalSeq++;               // 実行中(await中)のevaluateも無効化
   wantPlaying = false;
@@ -2347,7 +2476,7 @@ function stopAll() {
     if (!wantPlaying) { try { hardHush(); } catch (e) {} }
   }, 400);
   playing = false;
-  setStatus("停止", "ready");
+  setStatus(statusText || "停止", "ready");
   setTransport(false);
   releaseWakeLock();
   setVisualVisible(false);
@@ -2376,7 +2505,11 @@ function releaseWakeLock() {
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && playing) acquireWakeLock();
+  if (document.visibilityState === "hidden" && playing && !backgroundPlayEnabled) {
+    stopAll("非アクティブで停止");
+  } else if (document.visibilityState === "visible" && playing) {
+    acquireWakeLock();
+  }
 });
 
 /* ─────────────────────────────────────
@@ -2505,6 +2638,7 @@ if (sharedSong) {
 } else {
   ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
 }
+syncBpmFromCode();
 hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
