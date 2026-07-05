@@ -663,6 +663,7 @@ const CHIP_MODES = [
       ['s("")',                 's("…")',        3],
       ['note("")',              'note',          6],
       ['n("")',                 'n',             3],
+      ['$:  ',                  '$:',            4],
       ['setcpm(30)',            'setcpm',        7],
       ['stack(\n  \n)',         'stack',         9],
       ['.gain(0.8)',            '.gain',         6],
@@ -1339,6 +1340,12 @@ KEYS.forEach(([text, label, caret]) => {
   bindInsert(b, text, caret);
   keysEl.appendChild(b);
 });
+const commentKey = document.createElement("button");
+commentKey.className = "key";
+commentKey.textContent = "//";
+commentKey.setAttribute("aria-label", "行をコメントアウト");
+bindTap(commentKey, toggleLineComment);
+keysEl.appendChild(commentKey);
 
 const SNAP_IDS = ["A", "B", "C", "D"];
 const snapSlotsEl = document.getElementById("snapSlots");
@@ -1806,6 +1813,135 @@ function insertAtCursor(text, caret) {
   afterEdit();
   updateScrubber();
 }
+
+function lineRangeForSelection() {
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const effectiveEnd = e > s && text[e - 1] === "\n" ? e - 1 : e;
+  const lineStart = text.lastIndexOf("\n", Math.max(0, s - 1)) + 1;
+  const nextBreak = text.indexOf("\n", effectiveEnd);
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
+  return { lineStart, lineEnd, hasSelection: e !== s };
+}
+
+function toggleLineComment() {
+  ed.focus();
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const { lineStart, lineEnd, hasSelection } = lineRangeForSelection();
+  const block = text.slice(lineStart, lineEnd);
+  if (!block) return;
+  const lines = block.split("\n");
+  const filled = lines.filter(line => line.trim());
+  const uncomment = filled.length > 0 && filled.every(line => /^\s*\/\//.test(line));
+  const newLines = lines.map(line => {
+    if (!line.trim()) return line;
+    if (uncomment) return line.replace(/^(\s*)\/\//, "$1");
+    return line.replace(/^(\s*)/, "$1//");
+  });
+  const newBlock = newLines.join("\n");
+  ed.setRangeText(newBlock, lineStart, lineEnd, "select");
+  if (hasSelection) {
+    ed.selectionStart = lineStart;
+    ed.selectionEnd = lineStart + newBlock.length;
+  } else {
+    const oldLine = block;
+    const indent = (oldLine.match(/^\s*/) || [""])[0].length;
+    const pivot = lineStart + indent;
+    const delta = uncomment ? -2 : 2;
+    const next = s > pivot ? s + delta : s;
+    ed.selectionStart = ed.selectionEnd = Math.max(lineStart, Math.min(ed.value.length, next));
+  }
+  afterEdit();
+  updateScrubber();
+}
+
+function indentSelection(direction) {
+  ed.focus();
+  const text = ed.value;
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  if (s === e && direction > 0) {
+    insertAtCursor("  ", null);
+    return;
+  }
+  const effectiveEnd = e > s && text[e - 1] === "\n" ? e - 1 : e;
+  const lineStart = text.lastIndexOf("\n", Math.max(0, s - 1)) + 1;
+  const nextBreak = text.indexOf("\n", effectiveEnd);
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
+  const lines = text.slice(lineStart, lineEnd).split("\n");
+  let startDelta = 0, endDelta = 0;
+  const nextLines = lines.map((line, index) => {
+    if (direction > 0) {
+      if (lineStart + lines.slice(0, index).join("\n").length + (index ? 1 : 0) <= s) startDelta += 2;
+      endDelta += 2;
+      return "  " + line;
+    }
+    if (line.startsWith("  ")) {
+      if (lineStart + lines.slice(0, index).join("\n").length + (index ? 1 : 0) < s) startDelta -= 2;
+      endDelta -= 2;
+      return line.slice(2);
+    }
+    if (line.startsWith(" ")) {
+      if (lineStart + lines.slice(0, index).join("\n").length + (index ? 1 : 0) < s) startDelta -= 1;
+      endDelta -= 1;
+      return line.slice(1);
+    }
+    return line;
+  });
+  const nextBlock = nextLines.join("\n");
+  ed.setRangeText(nextBlock, lineStart, lineEnd, "select");
+  ed.selectionStart = Math.max(lineStart, s + startDelta);
+  ed.selectionEnd = Math.max(ed.selectionStart, e + endDelta);
+  afterEdit();
+  updateScrubber();
+}
+
+function autoIndentNewline() {
+  const s = ed.selectionStart;
+  const lineStart = ed.value.lastIndexOf("\n", Math.max(0, s - 1)) + 1;
+  const line = ed.value.slice(lineStart, s);
+  const indent = (line.match(/^\s*/) || [""])[0];
+  insertAtCursor("\n" + indent + "  ", null);
+}
+
+function autoPairQuote() {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const next = ed.value[e];
+  if (s !== e) {
+    const selected = ed.value.slice(s, e);
+    ed.setRangeText('"' + selected + '"', s, e, "end");
+    ed.selectionStart = s + 1;
+    ed.selectionEnd = e + 1;
+    afterEdit();
+    updateScrubber();
+    return;
+  }
+  if (next === '"') {
+    ed.selectionStart = ed.selectionEnd = e + 1;
+    updateScrubber();
+    return;
+  }
+  insertAtCursor('""', 1);
+}
+
+ed.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "/") {
+    e.preventDefault();
+    toggleLineComment();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Tab") {
+    e.preventDefault();
+    indentSelection(e.shiftKey ? -1 : 1);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    autoIndentNewline();
+  } else if (e.key === '"') {
+    e.preventDefault();
+    autoPairQuote();
+  }
+});
 
 /* ─────────────────────────────────────
    編集後の共通処理(自動保存 + 再生中なら再評価)
