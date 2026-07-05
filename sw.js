@@ -51,6 +51,7 @@ self.addEventListener("fetch", event => {
 });
 
 function cacheFirst(request, cacheName) {
+  if (request.headers.has("range")) return fetch(request);
   return caches.open(cacheName).then(cache =>
     cache.match(request).then(cached => {
       if (cached) return cached;
@@ -66,7 +67,7 @@ function cacheFirst(request, cacheName) {
 
 function networkFirstShell(request) {
   // GitHub PagesのHTTPキャッシュ(max-age=600)を無視して常に再検証し、更新を即配信する
-  return fetch(request.url, { cache: "no-cache", credentials: "same-origin" })
+  return fetch(new Request(request, { cache: "no-cache" }))
     .then(response => {
       if (response && response.ok) {
         caches.open(SHELL_CACHE_NAME).then(cache => cache.put(request, response.clone())).catch(() => {});
