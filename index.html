@@ -2372,7 +2372,9 @@ ed.addEventListener("keydown", e => {
 
 function renderSegmentButtons(container, activeMode) {
   [...container.querySelectorAll("button")].forEach(b => {
-    b.classList.toggle("active", b.dataset.mode === activeMode);
+    const active = b.dataset.mode === activeMode;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-pressed", active ? "true" : "false");
   });
 }
 
@@ -2402,8 +2404,10 @@ function setVisualMode(mode) {
   if (visualMode === "off") {
     visCount = 0;
     ensureVisualSlots(0);
-    setVisualVisible(false);
+    collapseVisuals();
     clearVisual();
+  } else if (!visualsEnabled()) {
+    collapseVisuals();
   } else if (playing) {
     layoutVisualCanvases({ force: true });
   }
@@ -3019,12 +3023,21 @@ let activeNoteTimer = null;
 let activeNoteStep = 0;
 const VISUAL_ID_BASE = 1000;
 
+function collapseVisuals() {
+  setVisualVisible(false);
+  visualsEl.classList.remove("show");
+  ed.classList.remove("withVisuals");
+  scheduleViewportLayout();
+}
+
 function themeColor(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
 function visualsEnabled() {
-  return visualMode !== "off";
+  if (visualMode === "off") return false;
+  if (visualMode === "playing") return playing || wantPlaying;
+  return true;
 }
 
 function themedVisualOptions(opts = {}) {
@@ -3374,7 +3387,11 @@ function stopAll(statusText) {
   setStatus(statusText || "停止", "ready");
   setTransport(false);
   releaseWakeLock();
-  setVisualVisible(false);
+  if (visualMode === "on") {
+    setVisualVisible(false);
+  } else {
+    collapseVisuals();
+  }
   stopActiveNoteOverlay();
   setTimeout(clearVisual, 300); // 最終フレームの描画が終わった頃に中身も消しておく
 }
