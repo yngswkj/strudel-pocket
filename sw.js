@@ -1,7 +1,8 @@
 "use strict";
 
-const SHELL_CACHE_NAME = "strudel-pocket-shell-v2";
+const SHELL_CACHE_NAME = "strudel-pocket-shell-v3";
 const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
+const LIB_CACHE_NAME = "strudel-pocket-libs-v1";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -11,7 +12,12 @@ const APP_SHELL = [
 const SAMPLE_ORIGINS = new Set([
   "https://strudel.b-cdn.net",
   "https://raw.githubusercontent.com",
-  "https://cdn.jsdelivr.net"
+  "https://cdn.jsdelivr.net",
+  "https://felixroos.github.io"
+]);
+const LIB_ORIGINS = new Set([
+  "https://unpkg.com",
+  "https://esm.sh"
 ]);
 
 self.addEventListener("install", event => {
@@ -23,7 +29,7 @@ self.addEventListener("install", event => {
 });
 
 self.addEventListener("activate", event => {
-  const keep = new Set([SHELL_CACHE_NAME, SAMPLE_CACHE_NAME]);
+  const keep = new Set([SHELL_CACHE_NAME, SAMPLE_CACHE_NAME, LIB_CACHE_NAME]);
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(keys.filter(key => !keep.has(key)).map(key => caches.delete(key))))
@@ -37,6 +43,11 @@ self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
   if (SAMPLE_ORIGINS.has(url.origin)) {
     event.respondWith(cacheFirst(event.request, SAMPLE_CACHE_NAME, event));
+    return;
+  }
+
+  if (LIB_ORIGINS.has(url.origin)) {
+    event.respondWith(cacheFirst(event.request, LIB_CACHE_NAME, event));
     return;
   }
 

@@ -527,7 +527,7 @@
 <header>
   <div class="dot" id="dot"></div>
   <div class="brand">Strudel<small>Pocket</small></div>
-  <div id="status">読み込み中…</div>
+  <div id="status">Strudel本体読込中…</div>
   <div id="hscroll">
     <button class="hbtn compact" id="undoBtn" aria-label="元に戻す" disabled>↶</button>
     <button class="hbtn compact" id="redoBtn" aria-label="やり直す" disabled>↷</button>
@@ -859,17 +859,21 @@ const KEYS = [
 ];
 
 const STRUDEL_CDN = "https://strudel.b-cdn.net";
+const SOUNDFONT_MODULE_URL = "https://esm.sh/@strudel/soundfonts@1.3.0?bundle";
+const SOUNDFONT_SOURCE_URL = "https://unpkg.com/@strudel/soundfonts@1.3.0/dist/index.mjs";
+const SOUNDFONT_BASE_URL = "https://felixroos.github.io/webaudiofontdata/sound";
 /* 本家(strudel.cc)相当のサウンドマップ。目次(JSON)の登録だけで、音声本体は初回使用時に取得される */
 const SOUND_MAPS = [
-  { kind: "registerZZFXSounds", args: [] },
-  { kind: "samples", args: ["github:tidalcycles/dirt-samples"] },
-  { kind: "samples", args: [`${STRUDEL_CDN}/piano.json`, `${STRUDEL_CDN}/piano/`, { prebake: true }] },
-  { kind: "samples", args: [`${STRUDEL_CDN}/vcsl.json`, `${STRUDEL_CDN}/VCSL/`, { prebake: true }] },
-  { kind: "samples", args: [`${STRUDEL_CDN}/tidal-drum-machines.json`, `${STRUDEL_CDN}/tidal-drum-machines/machines/`, { prebake: true, tag: "drum-machines" }] },
-  { kind: "samples", args: [`${STRUDEL_CDN}/uzu-drumkit.json`, `${STRUDEL_CDN}/uzu-drumkit/`, { prebake: true, tag: "drum-machines" }] },
-  { kind: "samples", args: [`${STRUDEL_CDN}/uzu-wavetables.json`, `${STRUDEL_CDN}/uzu-wavetables/`, { prebake: true }] },
-  { kind: "samples", args: [`${STRUDEL_CDN}/mridangam.json`, `${STRUDEL_CDN}/mrid/`, { prebake: true, tag: "drum-machines" }] },
-  { kind: "aliasBank", args: [`${STRUDEL_CDN}/tidal-drum-machines-alias.json`] }
+  { name: "ZZFX", kind: "registerZZFXSounds", args: [] },
+  { name: "GM SoundFonts", kind: "registerSoundfonts", args: [] },
+  { name: "Dirt samples", kind: "samples", args: ["github:tidalcycles/dirt-samples"] },
+  { name: "Piano", kind: "samples", args: [`${STRUDEL_CDN}/piano.json`, `${STRUDEL_CDN}/piano/`, { prebake: true }] },
+  { name: "VCSL", kind: "samples", args: [`${STRUDEL_CDN}/vcsl.json`, `${STRUDEL_CDN}/VCSL/`, { prebake: true }] },
+  { name: "Tidal drum machines", kind: "samples", args: [`${STRUDEL_CDN}/tidal-drum-machines.json`, `${STRUDEL_CDN}/tidal-drum-machines/machines/`, { prebake: true, tag: "drum-machines" }] },
+  { name: "Uzu drumkit", kind: "samples", args: [`${STRUDEL_CDN}/uzu-drumkit.json`, `${STRUDEL_CDN}/uzu-drumkit/`, { prebake: true, tag: "drum-machines" }] },
+  { name: "Uzu wavetables", kind: "samples", args: [`${STRUDEL_CDN}/uzu-wavetables.json`, `${STRUDEL_CDN}/uzu-wavetables/`, { prebake: true }] },
+  { name: "Mridangam", kind: "samples", args: [`${STRUDEL_CDN}/mridangam.json`, `${STRUDEL_CDN}/mrid/`, { prebake: true, tag: "drum-machines" }] },
+  { name: "Drum aliases", kind: "aliasBank", args: [`${STRUDEL_CDN}/tidal-drum-machines-alias.json`] }
 ];
 const SOUND_CHIPS = [
   ['s("bd sd hh")',              'bd/sd/hh',     null],
@@ -934,20 +938,148 @@ const sampleCacheStatusEl = document.getElementById("sampleCacheStatus");
 const sampleCacheRefreshBtn = document.getElementById("sampleCacheRefresh");
 const sampleCacheClearBtn = document.getElementById("sampleCacheClear");
 let soundsLoaded = false;
+let soundLoadPromise = null;
+let failedSoundMaps = [];
+let soundfontModulePromise = null;
+let gmSoundfontMapPromise = null;
+let gmSoundfontsRegistered = false;
 
 async function loadSounds() {
   if (soundsLoaded) return;
-  for (const entry of SOUND_MAPS) {
-    if (entry.kind === "samples") {
-      if (typeof samples !== "function") throw new Error("samples()が見つかりません");
-      await samples(...entry.args);
-    } else if (entry.kind === "aliasBank") {
-      if (typeof aliasBank === "function") await aliasBank(...entry.args);
-    } else if (entry.kind === "registerZZFXSounds") {
-      if (typeof registerZZFXSounds === "function") await registerZZFXSounds();
+  if (soundLoadPromise) return soundLoadPromise;
+  failedSoundMaps = [];
+  soundLoadPromise = (async () => {
+    for (let i = 0; i < SOUND_MAPS.length; i++) {
+      const entry = SOUND_MAPS[i];
+      renderSoundStatus(entry.name + " 読込中… (" + (i + 1) + "/" + SOUND_MAPS.length + ")");
+      setStatus("サウンド読込中: " + entry.name, "ready");
+      try {
+        await loadSoundMapEntry(entry);
+      } catch (e) {
+        failedSoundMaps.push({ name: entry.name, error: e });
+        console.warn("sound map failed", entry.name, e);
+      }
     }
+    soundsLoaded = true;
+    renderSoundStatus();
+    if (failedSoundMaps.length) {
+      showError("一部サウンド読込失敗: " + failedSoundMaps.map(f => f.name).join(", "));
+    }
+  })().finally(() => {
+    soundLoadPromise = null;
+  });
+  return soundLoadPromise;
+}
+
+async function loadSoundMapEntry(entry) {
+  if (entry.kind === "samples") {
+    if (typeof samples !== "function") throw new Error("samples()が見つかりません");
+    await samples(...entry.args);
+  } else if (entry.kind === "aliasBank") {
+    if (typeof aliasBank === "function") await aliasBank(...entry.args);
+  } else if (entry.kind === "registerZZFXSounds") {
+    if (typeof registerZZFXSounds === "function") await registerZZFXSounds();
+  } else if (entry.kind === "registerSoundfonts") {
+    await registerGMSoundfonts();
   }
-  soundsLoaded = true;
+}
+
+function requireStrudelSoundfontHelpers() {
+  const required = [
+    "registerSound",
+    "getADSRValues",
+    "getAudioContext",
+    "getParamADSR",
+    "getVibratoOscillator",
+    "getPitchEnvelope",
+    "onceEnded",
+    "releaseAudioNode"
+  ];
+  const missing = required.filter(name => typeof strudel === "undefined" || typeof strudel[name] !== "function");
+  if (missing.length) throw new Error("SoundFont登録に必要なAPIが見つかりません: " + missing.join(", "));
+}
+
+async function loadSoundfontModule() {
+  if (!soundfontModulePromise) {
+    soundfontModulePromise = import(SOUNDFONT_MODULE_URL).then(mod => {
+      if (typeof mod.getFontBufferSource !== "function") {
+        throw new Error("getFontBufferSource()が見つかりません");
+      }
+      if (typeof mod.setSoundfontUrl === "function") mod.setSoundfontUrl(SOUNDFONT_BASE_URL);
+      return mod;
+    });
+  }
+  return soundfontModulePromise;
+}
+
+function parseGMSoundfontMap(source) {
+  const marker = "const gm = ";
+  const start = source.indexOf(marker);
+  const end = source.indexOf(";\nlet defaultSoundfontUrl", start);
+  if (start < 0 || end < 0) throw new Error("GM SoundFontマップを抽出できません");
+  const gm = Function('"use strict";return (' + source.slice(start + marker.length, end) + ");")();
+  if (!gm || !Array.isArray(gm.gm_cello) || !Array.isArray(gm.gm_viola)) {
+    throw new Error("GM SoundFontマップの形式が不正です");
+  }
+  return gm;
+}
+
+async function loadGMSoundfontMap() {
+  if (!gmSoundfontMapPromise) {
+    gmSoundfontMapPromise = fetch(SOUNDFONT_SOURCE_URL)
+      .then(response => {
+        if (!response.ok) throw new Error("GM SoundFontマップを取得できません");
+        return response.text();
+      })
+      .then(parseGMSoundfontMap);
+  }
+  return gmSoundfontMapPromise;
+}
+
+async function registerGMSoundfonts() {
+  if (gmSoundfontsRegistered) return;
+  if (typeof strudel !== "undefined" && strudel.soundMap && strudel.soundMap.get().gm_cello) {
+    gmSoundfontsRegistered = true;
+    return;
+  }
+  requireStrudelSoundfontHelpers();
+  const [mod, gm] = await Promise.all([loadSoundfontModule(), loadGMSoundfontMap()]);
+  Object.entries(gm).forEach(([name, fonts]) => {
+    const fontList = Array.isArray(fonts) ? fonts.filter(Boolean) : [];
+    if (!fontList.length) return;
+    strudel.registerSound(name, async (time, value, done) => {
+      value = value || {};
+      const [attack, decay, sustain, release] = strudel.getADSRValues([
+        value.attack,
+        value.decay,
+        value.sustain,
+        value.release
+      ]);
+      const duration = value.duration || 0.75;
+      const index = typeof strudel.getSoundIndex === "function"
+        ? strudel.getSoundIndex(value.n, fontList.length)
+        : Math.abs(Number(value.n) || 0) % fontList.length;
+      const fontName = fontList[index];
+      const ctx = strudel.getAudioContext();
+      const source = await mod.getFontBufferSource(fontName, value, ctx);
+      source.start(time);
+      const gain = ctx.createGain();
+      const node = source.connect(gain);
+      const stopAt = time + duration;
+      strudel.getParamADSR(node.gain, attack, decay, sustain, release, 0, 0.3, time, stopAt, "linear");
+      const releaseAt = stopAt + release + 0.01;
+      const vibrato = strudel.getVibratoOscillator(source.detune, value, time);
+      strudel.getPitchEnvelope(source.detune, value, time, stopAt);
+      source.stop(releaseAt);
+      strudel.onceEnded(source, () => {
+        strudel.releaseAudioNode(source);
+        if (vibrato && typeof vibrato.stop === "function") vibrato.stop();
+        if (typeof done === "function") done();
+      });
+      return { node, stop() {}, nodes: { source: [source], ...(vibrato && vibrato.nodes ? vibrato.nodes : {}) } };
+    }, { type: "soundfont", prebake: true, fonts: fontList });
+  });
+  gmSoundfontsRegistered = true;
 }
 
 function renderSoundPalette() {
@@ -965,7 +1097,11 @@ function renderSoundStatus(text) {
   if (text) { soundStatusEl.textContent = text; return; }
   if (!soundsLoaded) { soundStatusEl.textContent = "サウンド読込中…"; return; }
   const all = listSounds();
-  soundStatusEl.textContent = "サウンド読込済み" + (all ? " " + all.length + "音" : "");
+  let msg = "サウンド読込済み" + (all ? " " + all.length + "音" : "");
+  if (failedSoundMaps.length) {
+    msg += " / 一部失敗: " + failedSoundMaps.map(f => f.name).join(", ");
+  }
+  soundStatusEl.textContent = msg;
 }
 renderSoundPalette();
 
@@ -1098,7 +1234,10 @@ function previewSound(name) {
       if (resume && resume.catch) resume.catch(() => {});
     }
     // 第2引数はAudioContextの絶対時刻。相対値を渡すと再生後に「過去」扱いで鳴らない
-    const r = sd({ s: name, gain: 0.8 }, ctx.currentTime + 0.05, 0.75);
+    const data = (strudel.soundMap && strudel.soundMap.get()[name] && strudel.soundMap.get()[name].data) || {};
+    const event = { s: name, gain: 0.8 };
+    if (data.type === "soundfont" || name.startsWith("gm_")) event.note = "c3";
+    const r = sd(event, ctx.currentTime + 0.05, 0.75);
     if (r && r.catch) r.catch(() => {});
   } catch (e) {}
 }
@@ -2555,6 +2694,7 @@ libScript.addEventListener("error", () => {
 });
 
 window.addEventListener("load", () => {
+  setStatus("Strudel本体読込中…");
   if (typeof initStrudel === "function") {
     try {
       const initPromise = initStrudel({
@@ -2563,7 +2703,10 @@ window.addEventListener("load", () => {
       Promise.resolve(initPromise).then(() => {
         patchVisuals();
         strudelReady = true;
-        setStatus("準備OK(初回再生時にサンプル取得)", "ready");
+        setStatus(
+          failedSoundMaps.length ? "準備OK(一部音源失敗)" : "準備OK(初回再生時にサンプル取得)",
+          "ready"
+        );
         renderSoundStatus();
         renderSoundResults(); // 読込前に検索タブを開いていた場合の表示を更新
       }).catch(e => {
