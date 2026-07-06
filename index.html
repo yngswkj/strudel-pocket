@@ -86,6 +86,9 @@
   }
   .hbtn:active:not(:disabled){background:var(--line)}
   .hbtn:disabled{opacity:.35}
+  .hbtn.active{
+    background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool);
+  }
 
   /* ヘッダー内の横スクロールボタン群(↶↷が見え、スクロールするとA−/A＋が現れる) */
   #hscroll{
@@ -110,6 +113,7 @@
     header{gap:6px;padding-left:8px;padding-right:8px}
     .brand{font-size:13px}
     #hscroll{width:70px}
+    #toolsToggle{width:34px}
     #openDrawer{padding:0 8px;font-size:11px}
   }
 
@@ -135,6 +139,7 @@
   /* 視覚化エリア(.pianoroll()/.scope()の描画先。ドック上段=コードの下) */
   #visuals{display:none;gap:6px;padding:6px 10px 0;height:120px}
   #visuals.show{display:flex}
+  body.keyboardOpen #visuals.show{display:none}
   #visuals canvas{
     flex:1;min-width:0;height:100%;border-radius:10px;
     background:
@@ -165,6 +170,7 @@
     background:linear-gradient(180deg,rgba(63,214,192,.07),transparent);
   }
   #scrub.show{display:flex}
+  body.toolsHidden #scrub.show{display:none}
   #scrubVal{
     font-family:var(--mono);font-size:15px;font-weight:700;color:var(--cool);
     min-width:64px;text-align:right;
@@ -193,6 +199,9 @@
     display:flex;gap:6px;padding:8px 10px 0;overflow-x:auto;
     scrollbar-width:none;
   }
+  body.toolsHidden #modes,
+  body.toolsHidden #editrow,
+  body.toolsHidden #keys{display:none}
   #modes::-webkit-scrollbar{display:none}
   .modeBtn{
     flex:1 0 54px;height:32px;border-radius:8px;
@@ -508,6 +517,7 @@
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
     <button class="hbtn compact" id="updateBtn" aria-label="コードを再評価">↻</button>
   </div>
+  <button class="hbtn compact active" id="toolsToggle" aria-label="入力補助を隠す" aria-pressed="true">⌨</button>
   <button class="hbtn" id="openDrawer">設定</button>
   <button id="playBtn" aria-label="再生">▶</button>
 </header>
@@ -638,6 +648,7 @@ const fader = document.getElementById("fader");
 const scrubVal = document.getElementById("scrubVal");
 const playBtn = document.getElementById("playBtn");
 const updateBtn = document.getElementById("updateBtn");
+const toolsToggle = document.getElementById("toolsToggle");
 const activeNoteOverlay = document.getElementById("activeNoteOverlay");
 const soundPasteBar = document.getElementById("soundPasteBar");
 const soundPasteText = document.getElementById("soundPasteText");
@@ -659,6 +670,7 @@ let tok = null; // {start,end,hasDot}
 let copiedSoundName = "";
 let autoUpdateEnabled = true;
 let backgroundPlayEnabled = false;
+let inputToolsVisible = true;
 let bpm = 120;
 
 /* ─────────────────────────────────────
@@ -682,6 +694,7 @@ const CURRENT_SONG_KEY = "strudel-pocket-current-song";
 const AUTO_UPDATE_KEY = "strudel-pocket-auto-update";
 const BACKGROUND_PLAY_KEY = "strudel-pocket-background-play";
 const BPM_KEY = "strudel-pocket-bpm";
+const TOOLS_KEY = "strudel-pocket-tools-visible";
 const DB_NAME = "strudel-pocket-db";
 const DB_VERSION = 1;
 const SONG_STORE = "songs";
@@ -689,8 +702,21 @@ const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
 
 autoUpdateEnabled = store ? store.getItem(AUTO_UPDATE_KEY) !== "0" : true;
 backgroundPlayEnabled = store ? store.getItem(BACKGROUND_PLAY_KEY) === "1" : false;
+inputToolsVisible = store ? store.getItem(TOOLS_KEY) !== "0" : true;
 bpm = store ? parseInt(store.getItem(BPM_KEY) || "120", 10) : 120;
 if (!Number.isFinite(bpm) || bpm < 40 || bpm > 220) bpm = 120;
+
+function applyInputToolsVisibility({ persist = false, relayout = true } = {}) {
+  document.body.classList.toggle("toolsHidden", !inputToolsVisible);
+  toolsToggle.classList.toggle("active", inputToolsVisible);
+  toolsToggle.setAttribute("aria-pressed", String(inputToolsVisible));
+  toolsToggle.setAttribute("aria-label", inputToolsVisible ? "入力補助を隠す" : "入力補助を表示");
+  if (persist && store) {
+    try { store.setItem(TOOLS_KEY, inputToolsVisible ? "1" : "0"); } catch (e) {}
+  }
+  if (relayout) scheduleViewportLayout();
+}
+applyInputToolsVisibility({ relayout: false });
 
 /* ─────────────────────────────────────
    プリセット
@@ -1871,6 +1897,10 @@ function bindInsert(btn, text, caret) {
 }
 bindTap(soundPasteBtn, pasteCopiedSound);
 bindTap(soundPasteClear, () => hideSoundPasteBar(true));
+bindTap(toolsToggle, () => {
+  inputToolsVisible = !inputToolsVisible;
+  applyInputToolsVisibility({ persist: true });
+});
 window.addEventListener("resize", layoutDock);
 
 function insertAtCursor(text, caret) {
@@ -2731,6 +2761,8 @@ document.addEventListener("visibilitychange", () => {
    ソフトキーボードの直上にドックを固定
 ───────────────────────────────────── */
 let viewportLayoutFrame = 0;
+let keyboardOpen = false;
+const KEYBOARD_INSET_THRESHOLD = 80;
 
 function scheduleViewportLayout() {
   if (viewportLayoutFrame) return;
@@ -2745,6 +2777,12 @@ function layoutDock() {
   const offset = vv ? window.innerHeight - vv.height - vv.offsetTop : 0;
   const keyboardInset = Math.max(0, Math.round(offset));
   document.documentElement.style.setProperty("--keyboard-inset", keyboardInset + "px");
+  const nextKeyboardOpen = keyboardInset > KEYBOARD_INSET_THRESHOLD;
+  if (nextKeyboardOpen !== keyboardOpen) {
+    keyboardOpen = nextKeyboardOpen;
+    document.body.classList.toggle("keyboardOpen", keyboardOpen);
+    if (!keyboardOpen) setTimeout(layoutVisualCanvases, 50);
+  }
   syncDockHeight();
   dock.style.transform = "translate3d(0," + (-keyboardInset) + "px,0)";
 }
