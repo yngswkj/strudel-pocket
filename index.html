@@ -29,6 +29,9 @@
     --visual-glow:rgba(63,214,192,.22);
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    --dock-height:148px;
+    --keyboard-inset:0px;
+    --editor-dock-gap:28px;
   }
   /* ── テーマ(本家 green-text / archBtw の配色を移植) ── */
   :root[data-theme="greenText"]{
@@ -112,13 +115,14 @@
 
   /* ── エディタ ─────────────────────── */
   #ed{
-    flex:1;width:100%;resize:none;border:none;outline:none;
+    flex:1;min-height:0;width:100%;resize:none;border:none;outline:none;
     background:transparent;color:var(--text); /* 透明: 背面の視覚化キャンバスを見せる */
     font-family:var(--mono);font-size:16px;line-height:1.55;
-    padding:14px 14px 178px;
+    padding:14px 14px calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap));
+    scroll-padding-bottom:calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap));
+    overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
     caret-color:var(--hot);
   }
-  #ed.withVisuals{padding-bottom:308px} /* 視覚化エリアの分だけ余白を増やす */
   #ed::selection{background:rgba(63,214,192,.28)}
 
   /* ── 下部ドック ───────────────────── */
@@ -365,7 +369,7 @@
   }
   #soundPasteBar{
     position:fixed;left:10px;right:10px;
-    bottom:calc(var(--dock-height, 148px) + 8px);
+    bottom:calc(var(--dock-height, 148px) + var(--keyboard-inset, 0px) + 8px);
     z-index:45;display:flex;align-items:center;gap:8px;
     min-height:46px;padding:6px 6px 6px 12px;border-radius:10px;
     background:var(--surface);border:1px solid var(--cool);
@@ -982,8 +986,14 @@ function insertSoundAt(name, pos) {
   insertAtCursor(ins, null);
 }
 
+function syncDockHeight() {
+  const height = Math.ceil(dock.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--dock-height", height + "px");
+  return height;
+}
+
 function updateSoundPastePosition() {
-  document.documentElement.style.setProperty("--dock-height", Math.ceil(dock.getBoundingClientRect().height) + "px");
+  syncDockHeight();
 }
 
 function showSoundPasteBar(name, systemCopied) {
@@ -1861,14 +1871,7 @@ function bindInsert(btn, text, caret) {
 }
 bindTap(soundPasteBtn, pasteCopiedSound);
 bindTap(soundPasteClear, () => hideSoundPasteBar(true));
-window.addEventListener("resize", () => {
-  if (!soundPasteBar.hidden) updateSoundPastePosition();
-});
-if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", () => {
-    if (!soundPasteBar.hidden) updateSoundPastePosition();
-  });
-}
+window.addEventListener("resize", layoutDock);
 
 function insertAtCursor(text, caret) {
   ed.focus();
@@ -2221,7 +2224,7 @@ function updateScrubber() {
   if (!t) {
     scrub.classList.remove("show");
     tok = null;
-    if (!soundPasteBar.hidden) updateSoundPastePosition();
+    scheduleViewportLayout();
     return;
   }
   // すでにフェーダーが掴んでいるのと同じ数値なら、レンジ(min/max/step)は据え置く。
@@ -2238,7 +2241,7 @@ function updateScrubber() {
   fader.value = t.value;
   scrubVal.textContent = t.raw;
   scrub.classList.add("show");
-  if (!soundPasteBar.hidden) updateSoundPastePosition();
+  scheduleViewportLayout();
 }
 
 function applyScrubValue(v) {
@@ -2305,9 +2308,11 @@ function setStatus(text, dotClass) {
 function showError(msg) {
   errbar.textContent = msg;
   errbar.classList.add("show");
+  scheduleViewportLayout();
 }
 function clearError() {
   errbar.classList.remove("show");
+  scheduleViewportLayout();
 }
 
 const libScript = document.getElementById("strudel-lib");
@@ -2502,6 +2507,7 @@ function allocVisualCanvas(options = {}) {
   c.dataset.theme = document.documentElement.dataset.theme || "pocket";
   visCount++;
   visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
+  scheduleViewportLayout();
   layoutVisualCanvases();
   return themedCanvasContext(c.getContext("2d"), options);
 }
@@ -2600,6 +2606,7 @@ function finishVisuals() {
   const has = visPool.length > 0;
   visualsEl.classList.toggle("show", has);
   ed.classList.toggle("withVisuals", has);
+  scheduleViewportLayout();
   layoutVisualCanvases();
 }
 
@@ -2723,17 +2730,32 @@ document.addEventListener("visibilitychange", () => {
 /* ─────────────────────────────────────
    ソフトキーボードの直上にドックを固定
 ───────────────────────────────────── */
+let viewportLayoutFrame = 0;
+
+function scheduleViewportLayout() {
+  if (viewportLayoutFrame) return;
+  viewportLayoutFrame = requestAnimationFrame(() => {
+    viewportLayoutFrame = 0;
+    layoutDock();
+  });
+}
+
 function layoutDock() {
   const vv = window.visualViewport;
-  if (!vv) return;
-  const offset = window.innerHeight - vv.height - vv.offsetTop;
-  dock.style.transform = "translate3d(0," + (-Math.max(0, Math.round(offset))) + "px,0)";
+  const offset = vv ? window.innerHeight - vv.height - vv.offsetTop : 0;
+  const keyboardInset = Math.max(0, Math.round(offset));
+  document.documentElement.style.setProperty("--keyboard-inset", keyboardInset + "px");
+  syncDockHeight();
+  dock.style.transform = "translate3d(0," + (-keyboardInset) + "px,0)";
+}
+if ("ResizeObserver" in window) {
+  new ResizeObserver(scheduleViewportLayout).observe(dock);
 }
 if (window.visualViewport) {
   visualViewport.addEventListener("resize", layoutDock);
   visualViewport.addEventListener("scroll", layoutDock);
-  layoutDock();
 }
+layoutDock();
 
 /* ─────────────────────────────────────
    ドロワー・フォントサイズ・初期値
