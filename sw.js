@@ -7,7 +7,8 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
-  "./assets/icon.svg"
+  "./assets/icon.svg",
+  "./assets/gm-soundfonts.json"
 ];
 const SAMPLE_ORIGINS = new Set([
   "https://strudel.b-cdn.net",

@@ -20,7 +20,7 @@
 - **視覚化**: `.pianoroll()` や `.scope()` をコード下の専用エリアに表示(複数可)。テーマ色とアクティブ音符ハイライトに対応
 - **テーマ**: Pocket / greenText / archBtw(本家テーマの配色を移植)
 - **サウンドマップ**: 本家相当の追加サンプルマップを起動時に登録
-- **General MIDI SoundFont**: `gm_cello` / `gm_viola` / `gm_contrabass` などの `gm_*` 音色を登録
+- **General MIDI SoundFont**: ローカルの固定GMマップから `gm_cello` / `gm_viola` / `gm_contrabass` などの `gm_*` 音色を登録
 - **サウンド検索**: 設定 > サウンドで音色を検索し、タップ試聴・長押しコピーからエディタへ貼付
 - **サンプルキャッシュ**: 一度取得した許可済みサンプルを再利用し、ドロワーから件数確認・削除
 - **曲ライブラリ**: 作成した曲を IndexedDB に保存・呼び出し。テーマと A/B/C/D スナップも保持し、JSON 書き出し・読み込み・共有リンクに対応
@@ -37,7 +37,8 @@
 ```
 strudel-pocket/
 ├── assets/
-│   └── icon.svg          # PWA/ブラウザ用アイコン
+│   ├── icon.svg          # PWA/ブラウザ用アイコン
+│   └── gm-soundfonts.json # General MIDI SoundFont音色マップ
 ├── index.html            # アプリ本体(HTML + CSS + JS)
 ├── manifest.webmanifest  # PWA manifest
 ├── README.md
@@ -45,7 +46,7 @@ strudel-pocket/
 └── LICENSE               # AGPL-3.0
 ```
 
-Service Worker はアプリシェルをキャッシュし、HTML は更新を優先して取得します。Strudel 本体や SoundFont 登録用の固定CDNリソースも一度オンラインで取得すると再利用されます。起動時にサンプルマップを登録し、音声ファイル本体は必要になったタイミングで Strudel / superdough が取得します。一度取得した許可済みサンプル(Strudel CDN / GitHub raw / jsDelivr / WebAudioFont data)は Cache Storage に保存され、ドロワーから件数確認と削除ができます。
+Service Worker はアプリシェルをキャッシュし、HTML は更新を優先して取得します。Strudel 本体、SoundFont補助モジュール、固定GMマップも一度オンラインで取得すると再利用されます。起動時にサンプルマップを登録し、音声ファイル本体は必要になったタイミングで Strudel / superdough が取得します。一度取得した許可済みサンプル(Strudel CDN / GitHub raw / jsDelivr / WebAudioFont data)は Cache Storage に保存され、ドロワーから件数確認と削除ができます。
 
 ## ライセンス
 

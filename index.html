@@ -860,7 +860,7 @@ const KEYS = [
 
 const STRUDEL_CDN = "https://strudel.b-cdn.net";
 const SOUNDFONT_MODULE_URL = "https://esm.sh/@strudel/soundfonts@1.3.0?bundle";
-const SOUNDFONT_SOURCE_URL = "https://unpkg.com/@strudel/soundfonts@1.3.0/dist/index.mjs";
+const SOUNDFONT_MAP_URL = "./assets/gm-soundfonts.json";
 const SOUNDFONT_BASE_URL = "https://felixroos.github.io/webaudiofontdata/sound";
 /* 本家(strudel.cc)相当のサウンドマップ。目次(JSON)の登録だけで、音声本体は初回使用時に取得される */
 const SOUND_MAPS = [
@@ -991,9 +991,7 @@ function requireStrudelSoundfontHelpers() {
     "getAudioContext",
     "getParamADSR",
     "getVibratoOscillator",
-    "getPitchEnvelope",
-    "onceEnded",
-    "releaseAudioNode"
+    "getPitchEnvelope"
   ];
   const missing = required.filter(name => typeof strudel === "undefined" || typeof strudel[name] !== "function");
   if (missing.length) throw new Error("SoundFont登録に必要なAPIが見つかりません: " + missing.join(", "));
@@ -1012,26 +1010,19 @@ async function loadSoundfontModule() {
   return soundfontModulePromise;
 }
 
-function parseGMSoundfontMap(source) {
-  const marker = "const gm = ";
-  const start = source.indexOf(marker);
-  const end = source.indexOf(";\nlet defaultSoundfontUrl", start);
-  if (start < 0 || end < 0) throw new Error("GM SoundFontマップを抽出できません");
-  const gm = Function('"use strict";return (' + source.slice(start + marker.length, end) + ");")();
-  if (!gm || !Array.isArray(gm.gm_cello) || !Array.isArray(gm.gm_viola)) {
-    throw new Error("GM SoundFontマップの形式が不正です");
-  }
-  return gm;
-}
-
 async function loadGMSoundfontMap() {
   if (!gmSoundfontMapPromise) {
-    gmSoundfontMapPromise = fetch(SOUNDFONT_SOURCE_URL)
+    gmSoundfontMapPromise = fetch(SOUNDFONT_MAP_URL)
       .then(response => {
         if (!response.ok) throw new Error("GM SoundFontマップを取得できません");
-        return response.text();
+        return response.json();
       })
-      .then(parseGMSoundfontMap);
+      .then(gm => {
+        if (!gm || !Array.isArray(gm.gm_cello) || !Array.isArray(gm.gm_viola)) {
+          throw new Error("GM SoundFontマップの形式が不正です");
+        }
+        return gm;
+      });
   }
   return gmSoundfontMapPromise;
 }
@@ -1055,7 +1046,7 @@ async function registerGMSoundfonts() {
         value.sustain,
         value.release
       ]);
-      const duration = value.duration || 0.75;
+      const duration = value.duration ?? 0.75;
       const index = typeof strudel.getSoundIndex === "function"
         ? strudel.getSoundIndex(value.n, fontList.length)
         : Math.abs(Number(value.n) || 0) % fontList.length;
@@ -1071,12 +1062,23 @@ async function registerGMSoundfonts() {
       const vibrato = strudel.getVibratoOscillator(source.detune, value, time);
       strudel.getPitchEnvelope(source.detune, value, time, stopAt);
       source.stop(releaseAt);
-      strudel.onceEnded(source, () => {
-        strudel.releaseAudioNode(source);
-        if (vibrato && typeof vibrato.stop === "function") vibrato.stop();
+      let ended = false;
+      const cleanup = () => {
+        if (ended) return;
+        ended = true;
+        try { source.disconnect(); } catch (e) {}
+        try { gain.disconnect(); } catch (e) {}
+        if (vibrato && typeof vibrato.stop === "function") {
+          try { vibrato.stop(); } catch (e) {}
+        }
         if (typeof done === "function") done();
-      });
-      return { node, stop() {}, nodes: { source: [source], ...(vibrato && vibrato.nodes ? vibrato.nodes : {}) } };
+      };
+      source.addEventListener("ended", cleanup, { once: true });
+      const stop = stopTime => {
+        if (ended) return;
+        try { source.stop(Math.max(ctx.currentTime, stopTime ?? ctx.currentTime)); } catch (e) {}
+      };
+      return { node, stop, nodes: { source: [source], ...(vibrato && vibrato.nodes ? vibrato.nodes : {}) } };
     }, { type: "soundfont", prebake: true, fonts: fontList });
   });
   gmSoundfontsRegistered = true;
