@@ -29,6 +29,10 @@
     --visual-glow:rgba(63,214,192,.22);
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    --dock-height:148px;
+    --keyboard-inset:0px;
+    --editor-dock-gap:28px;
+    --line-gutter:30px;
   }
   /* ── テーマ(本家 green-text / archBtw の配色を移植) ── */
   :root[data-theme="greenText"]{
@@ -83,6 +87,9 @@
   }
   .hbtn:active:not(:disabled){background:var(--line)}
   .hbtn:disabled{opacity:.35}
+  .hbtn.active{
+    background:rgba(63,214,192,.11);border-color:var(--cool);color:var(--cool);
+  }
 
   /* ヘッダー内の横スクロールボタン群(↶↷が見え、スクロールするとA−/A＋が現れる) */
   #hscroll{
@@ -107,19 +114,38 @@
     header{gap:6px;padding-left:8px;padding-right:8px}
     .brand{font-size:13px}
     #hscroll{width:70px}
+    #toolsToggle{width:34px}
     #openDrawer{padding:0 8px;font-size:11px}
   }
 
   /* ── エディタ ─────────────────────── */
+  #editorWrap{
+    flex:1;min-height:0;width:100%;position:relative;overflow:hidden;
+  }
   #ed{
-    flex:1;width:100%;resize:none;border:none;outline:none;
+    position:absolute;inset:0;z-index:2;
+    width:100%;height:100%;resize:none;border:none;outline:none;
     background:transparent;color:var(--text); /* 透明: 背面の視覚化キャンバスを見せる */
     font-family:var(--mono);font-size:16px;line-height:1.55;
-    padding:14px 14px 178px;
+    padding:14px 14px calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap)) calc(var(--line-gutter) + 10px);
+    scroll-padding-bottom:calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap));
+    overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
     caret-color:var(--hot);
   }
-  #ed.withVisuals{padding-bottom:308px} /* 視覚化エリアの分だけ余白を増やす */
   #ed::selection{background:rgba(63,214,192,.28)}
+  #lineNums{
+    position:absolute;z-index:4;left:0;top:0;bottom:0;width:var(--line-gutter);
+    overflow:hidden;pointer-events:none;
+    color:var(--muted);opacity:.52;font-family:var(--mono);font-size:16px;line-height:1.55;
+    font-variant-numeric:tabular-nums;text-align:right;
+  }
+  #lineNumsInner{padding-top:14px;will-change:transform}
+  #lineNums .ln{line-height:1.55;padding-right:5px;box-sizing:border-box}
+  #activeLine{
+    position:absolute;z-index:3;left:calc(var(--line-gutter) + 8px);right:10px;
+    height:0;border-bottom:1px solid color-mix(in srgb,var(--cool) 62%,transparent);
+    pointer-events:none;display:none;box-shadow:0 1px 0 rgba(0,0,0,.28);
+  }
 
   /* ── 下部ドック ───────────────────── */
   #dock{
@@ -131,6 +157,7 @@
   /* 視覚化エリア(.pianoroll()/.scope()の描画先。ドック上段=コードの下) */
   #visuals{display:none;gap:6px;padding:6px 10px 0;height:120px}
   #visuals.show{display:flex}
+  body.keyboardOpen #visuals.show{display:none}
   #visuals canvas{
     flex:1;min-width:0;height:100%;border-radius:10px;
     background:
@@ -161,6 +188,7 @@
     background:linear-gradient(180deg,rgba(63,214,192,.07),transparent);
   }
   #scrub.show{display:flex}
+  body.toolsHidden #scrub.show{display:none}
   #scrubVal{
     font-family:var(--mono);font-size:15px;font-weight:700;color:var(--cool);
     min-width:64px;text-align:right;
@@ -189,6 +217,9 @@
     display:flex;gap:6px;padding:8px 10px 0;overflow-x:auto;
     scrollbar-width:none;
   }
+  body.toolsHidden #modes,
+  body.toolsHidden #editrow,
+  body.toolsHidden #keys{display:none}
   #modes::-webkit-scrollbar{display:none}
   .modeBtn{
     flex:1 0 54px;height:32px;border-radius:8px;
@@ -365,7 +396,7 @@
   }
   #soundPasteBar{
     position:fixed;left:10px;right:10px;
-    bottom:calc(var(--dock-height, 148px) + 8px);
+    bottom:calc(var(--dock-height, 148px) + var(--keyboard-inset, 0px) + 8px);
     z-index:45;display:flex;align-items:center;gap:8px;
     min-height:46px;padding:6px 6px 6px 12px;border-radius:10px;
     background:var(--surface);border:1px solid var(--cool);
@@ -504,13 +535,18 @@
     <button class="hbtn compact" id="fontPlus" aria-label="文字を大きく">A＋</button>
     <button class="hbtn compact" id="updateBtn" aria-label="コードを再評価">↻</button>
   </div>
+  <button class="hbtn compact active" id="toolsToggle" aria-label="入力補助を隠す" aria-pressed="true">⌨</button>
   <button class="hbtn" id="openDrawer">設定</button>
   <button id="playBtn" aria-label="再生">▶</button>
 </header>
 
-<textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
-  autocomplete="off" inputmode="email" lang="en"
-  placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+<div id="editorWrap">
+  <div id="lineNums" aria-hidden="true"><div id="lineNumsInner"></div></div>
+  <div id="activeLine" aria-hidden="true"></div>
+  <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
+    autocomplete="off" inputmode="email" lang="en"
+    placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+</div>
 <div id="activeNoteOverlay" aria-hidden="true"></div>
 
 <div id="dock">
@@ -625,6 +661,9 @@ console.log("%c🥨 Strudel Pocket", "color:#3fd6c0;font-size:16px;font-weight:b
    要素
 ───────────────────────────────────── */
 const ed = document.getElementById("ed");
+const lineNums = document.getElementById("lineNums");
+const lineNumsInner = document.getElementById("lineNumsInner");
+const activeLine = document.getElementById("activeLine");
 const dock = document.getElementById("dock");
 const dot = document.getElementById("dot");
 const statusEl = document.getElementById("status");
@@ -634,6 +673,7 @@ const fader = document.getElementById("fader");
 const scrubVal = document.getElementById("scrubVal");
 const playBtn = document.getElementById("playBtn");
 const updateBtn = document.getElementById("updateBtn");
+const toolsToggle = document.getElementById("toolsToggle");
 const activeNoteOverlay = document.getElementById("activeNoteOverlay");
 const soundPasteBar = document.getElementById("soundPasteBar");
 const soundPasteText = document.getElementById("soundPasteText");
@@ -655,6 +695,7 @@ let tok = null; // {start,end,hasDot}
 let copiedSoundName = "";
 let autoUpdateEnabled = true;
 let backgroundPlayEnabled = false;
+let inputToolsVisible = true;
 let bpm = 120;
 
 /* ─────────────────────────────────────
@@ -678,6 +719,7 @@ const CURRENT_SONG_KEY = "strudel-pocket-current-song";
 const AUTO_UPDATE_KEY = "strudel-pocket-auto-update";
 const BACKGROUND_PLAY_KEY = "strudel-pocket-background-play";
 const BPM_KEY = "strudel-pocket-bpm";
+const TOOLS_KEY = "strudel-pocket-tools-visible";
 const DB_NAME = "strudel-pocket-db";
 const DB_VERSION = 1;
 const SONG_STORE = "songs";
@@ -685,8 +727,21 @@ const SAMPLE_CACHE_NAME = "strudel-pocket-samples-v1";
 
 autoUpdateEnabled = store ? store.getItem(AUTO_UPDATE_KEY) !== "0" : true;
 backgroundPlayEnabled = store ? store.getItem(BACKGROUND_PLAY_KEY) === "1" : false;
+inputToolsVisible = store ? store.getItem(TOOLS_KEY) !== "0" : true;
 bpm = store ? parseInt(store.getItem(BPM_KEY) || "120", 10) : 120;
 if (!Number.isFinite(bpm) || bpm < 40 || bpm > 220) bpm = 120;
+
+function applyInputToolsVisibility({ persist = false, relayout = true } = {}) {
+  document.body.classList.toggle("toolsHidden", !inputToolsVisible);
+  toolsToggle.classList.toggle("active", inputToolsVisible);
+  toolsToggle.setAttribute("aria-pressed", String(inputToolsVisible));
+  toolsToggle.setAttribute("aria-label", inputToolsVisible ? "入力補助を隠す" : "入力補助を表示");
+  if (persist && store) {
+    try { store.setItem(TOOLS_KEY, inputToolsVisible ? "1" : "0"); } catch (e) {}
+  }
+  if (relayout) scheduleViewportLayout();
+}
+applyInputToolsVisibility({ relayout: false });
 
 /* ─────────────────────────────────────
    プリセット
@@ -982,8 +1037,14 @@ function insertSoundAt(name, pos) {
   insertAtCursor(ins, null);
 }
 
+function syncDockHeight() {
+  const height = Math.ceil(dock.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--dock-height", height + "px");
+  return height;
+}
+
 function updateSoundPastePosition() {
-  document.documentElement.style.setProperty("--dock-height", Math.ceil(dock.getBoundingClientRect().height) + "px");
+  syncDockHeight();
 }
 
 function showSoundPasteBar(name, systemCopied) {
@@ -1861,14 +1922,15 @@ function bindInsert(btn, text, caret) {
 }
 bindTap(soundPasteBtn, pasteCopiedSound);
 bindTap(soundPasteClear, () => hideSoundPasteBar(true));
-window.addEventListener("resize", () => {
-  if (!soundPasteBar.hidden) updateSoundPastePosition();
+bindTap(toolsToggle, () => {
+  if (document.activeElement === ed) ed.blur();
+  inputToolsVisible = !inputToolsVisible;
+  applyInputToolsVisibility({ persist: true });
 });
-if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", () => {
-    if (!soundPasteBar.hidden) updateSoundPastePosition();
-  });
-}
+window.addEventListener("resize", () => {
+  layoutDock();
+  updateEditorGuides();
+});
 
 function insertAtCursor(text, caret) {
   ed.focus();
@@ -2087,11 +2149,180 @@ bpmSlider.addEventListener("input", () => {
 });
 
 /* ─────────────────────────────────────
+   エディタ補助表示(行番号 + カーソル行)
+───────────────────────────────────── */
+let renderedGuideSignature = "";
+let editorLineMetrics = [];
+let guideMeasureEl = null;
+
+function editorLines() {
+  return ed.value.split("\n");
+}
+
+function cssPx(value, fallback = 0) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function currentEditorGuideStyle() {
+  const cs = getComputedStyle(ed);
+  const fontSize = cssPx(cs.fontSize, 16);
+  const lineHeight = cssPx(cs.lineHeight, fontSize * 1.55);
+  const paddingTop = cssPx(cs.paddingTop);
+  const paddingLeft = cssPx(cs.paddingLeft);
+  const paddingRight = cssPx(cs.paddingRight);
+  const contentWidth = Math.max(1, ed.clientWidth - paddingLeft - paddingRight);
+  return {
+    font: cs.font,
+    fontSize,
+    lineHeight,
+    letterSpacing: cs.letterSpacing,
+    tabSize: cs.tabSize || cs.getPropertyValue("tab-size") || "8",
+    paddingTop,
+    contentWidth
+  };
+}
+
+function ensureGuideMeasureEl() {
+  if (guideMeasureEl) return guideMeasureEl;
+  guideMeasureEl = document.createElement("div");
+  guideMeasureEl.setAttribute("aria-hidden", "true");
+  Object.assign(guideMeasureEl.style, {
+    position: "fixed",
+    left: "-9999px",
+    top: "0",
+    zIndex: "-1",
+    visibility: "hidden",
+    pointerEvents: "none",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    wordBreak: "normal",
+    boxSizing: "content-box",
+    padding: "0",
+    border: "0",
+    margin: "0"
+  });
+  document.body.appendChild(guideMeasureEl);
+  return guideMeasureEl;
+}
+
+function syncGuideMeasureStyle(measure, guide) {
+  Object.assign(measure.style, {
+    width: guide.contentWidth + "px",
+    font: guide.font,
+    fontSize: guide.fontSize + "px",
+    lineHeight: guide.lineHeight + "px",
+    letterSpacing: guide.letterSpacing,
+    tabSize: guide.tabSize
+  });
+}
+
+function measureEditorLineMetrics(lines, guide) {
+  const measure = ensureGuideMeasureEl();
+  syncGuideMeasureStyle(measure, guide);
+  const metrics = [];
+  let top = 0;
+  lines.forEach(line => {
+    measure.textContent = line.length ? line : "\u00a0";
+    const height = Math.max(guide.lineHeight, Math.ceil(measure.scrollHeight));
+    metrics.push({ top, height });
+    top += height;
+  });
+  measure.textContent = "";
+  return metrics;
+}
+
+function updateLineNumbers() {
+  const lines = editorLines();
+  const guide = currentEditorGuideStyle();
+  const signature = [
+    ed.value,
+    guide.contentWidth,
+    guide.font,
+    guide.lineHeight,
+    guide.letterSpacing,
+    guide.tabSize
+  ].join("\u001f");
+  if (signature !== renderedGuideSignature) {
+    editorLineMetrics = measureEditorLineMetrics(lines, guide);
+    const frag = document.createDocumentFragment();
+    lines.forEach((line, i) => {
+      const n = document.createElement("div");
+      const metric = editorLineMetrics[i] || { height: guide.lineHeight };
+      n.className = "ln";
+      n.textContent = String(i + 1);
+      n.style.height = Math.max(guide.lineHeight, metric.height) + "px";
+      n.style.lineHeight = guide.lineHeight + "px";
+      frag.appendChild(n);
+    });
+    lineNumsInner.textContent = "";
+    lineNumsInner.appendChild(frag);
+    renderedGuideSignature = signature;
+  }
+  lineNumsInner.style.transform = "translateY(" + Math.round(-ed.scrollTop) + "px)";
+}
+
+function activeLineIndex() {
+  return (ed.value.slice(0, ed.selectionStart).match(/\n/g) || []).length;
+}
+
+function activeLineStart(index) {
+  if (index <= 0) return 0;
+  let pos = -1;
+  for (let i = 0; i < index; i++) {
+    pos = ed.value.indexOf("\n", pos + 1);
+    if (pos === -1) return ed.value.length;
+  }
+  return pos + 1;
+}
+
+function activeVisualRowOffset(index, guide) {
+  const lines = editorLines();
+  const line = lines[index] || "";
+  const offset = Math.max(0, ed.selectionStart - activeLineStart(index));
+  const measure = ensureGuideMeasureEl();
+  syncGuideMeasureStyle(measure, guide);
+  measure.textContent = "";
+  if (offset > 0) measure.appendChild(document.createTextNode(line.slice(0, offset)));
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  measure.appendChild(marker);
+  const top = marker.offsetTop || 0;
+  measure.textContent = "";
+  return Math.max(0, top);
+}
+
+function updateActiveLine() {
+  if (!editorLineMetrics.length) updateLineNumbers();
+  const guide = currentEditorGuideStyle();
+  const index = activeLineIndex();
+  const metric = editorLineMetrics[index];
+  if (!metric) {
+    activeLine.style.display = "none";
+    return;
+  }
+  const rowOffset = activeVisualRowOffset(index, guide);
+  const y = guide.paddingTop + metric.top + rowOffset + guide.lineHeight - ed.scrollTop - 1;
+  if (y < 0 || y > ed.clientHeight) {
+    activeLine.style.display = "none";
+    return;
+  }
+  activeLine.style.display = "block";
+  activeLine.style.top = Math.round(y) + "px";
+}
+
+function updateEditorGuides() {
+  updateLineNumbers();
+  updateActiveLine();
+}
+
+/* ─────────────────────────────────────
    編集後の共通処理(自動保存 + 再生中なら再評価)
 ───────────────────────────────────── */
 let saveTimer = null, evalTimer = null;
 function afterEdit() {
   syncBpmFromCode();
+  updateEditorGuides();
   if (store) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -2157,6 +2388,7 @@ function moveCaret(d) {
   p = Math.max(0, Math.min(ed.value.length, p));
   ed.selectionStart = ed.selectionEnd = p;
   updateScrubber();
+  updateActiveLine();
 }
 
 document.getElementById("caretL").addEventListener("pointerdown", e => {
@@ -2221,7 +2453,7 @@ function updateScrubber() {
   if (!t) {
     scrub.classList.remove("show");
     tok = null;
-    if (!soundPasteBar.hidden) updateSoundPastePosition();
+    scheduleViewportLayout();
     return;
   }
   // すでにフェーダーが掴んでいるのと同じ数値なら、レンジ(min/max/step)は据え置く。
@@ -2238,7 +2470,7 @@ function updateScrubber() {
   fader.value = t.value;
   scrubVal.textContent = t.raw;
   scrub.classList.add("show");
-  if (!soundPasteBar.hidden) updateSoundPastePosition();
+  scheduleViewportLayout();
 }
 
 function applyScrubValue(v) {
@@ -2278,14 +2510,18 @@ document.getElementById("stepPlus").addEventListener("pointerdown", e => {
 });
 
 document.addEventListener("selectionchange", () => {
-  if (document.activeElement === ed) updateScrubber();
+  if (document.activeElement === ed) {
+    updateScrubber();
+    updateActiveLine();
+  }
 });
-ed.addEventListener("pointerup", updateScrubber);
-ed.addEventListener("keyup", updateScrubber);
+ed.addEventListener("pointerup", () => { updateScrubber(); updateActiveLine(); });
+ed.addEventListener("keyup", () => { updateScrubber(); updateActiveLine(); });
 ed.addEventListener("scroll", () => {
-  if (playing) drawActiveNoteOverlay();
+  updateEditorGuides();
 });
 ed.addEventListener("blur", () => {
+  updateActiveLine();
   // フェーダー操作へ移った場合は残す
   setTimeout(() => {
     const a = document.activeElement;
@@ -2305,9 +2541,11 @@ function setStatus(text, dotClass) {
 function showError(msg) {
   errbar.textContent = msg;
   errbar.classList.add("show");
+  scheduleViewportLayout();
 }
 function clearError() {
   errbar.classList.remove("show");
+  scheduleViewportLayout();
 }
 
 const libScript = document.getElementById("strudel-lib");
@@ -2393,6 +2631,7 @@ const visPool = [];  // 生成済みキャンバス(評価をまたいで再利�
 let visCount = 0;    // 今回の評価で割り当てた数
 let activeNoteTimer = null;
 let activeNoteStep = 0;
+const VISUAL_ID_BASE = 1000;
 
 function themeColor(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -2492,29 +2731,74 @@ function themedMutableVisualOptions(opts, forced = {}) {
   });
 }
 
-function allocVisualCanvas(options = {}) {
-  let c = visPool[visCount];
-  if (!c) {
-    c = document.createElement("canvas");
-    visualsEl.appendChild(c);
-    visPool.push(c);
-  }
-  c.dataset.theme = document.documentElement.dataset.theme || "pocket";
-  visCount++;
-  visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
-  layoutVisualCanvases();
-  return themedCanvasContext(c.getContext("2d"), options);
+function createVisualCanvas() {
+  const c = document.createElement("canvas");
+  visualsEl.appendChild(c);
+  return c;
 }
 
-function layoutVisualCanvases() {
+function sizeVisualCanvas(c, { force = false } = {}) {
   const dpr = window.devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  const w = Math.round(r.width * dpr);
+  const h = Math.round(r.height * dpr);
+  if (!w || !h) return;
+  if (force || c.dataset.sized !== "1") {
+    c.width = w;
+    c.height = h;
+    c.dataset.sized = "1";
+  }
+}
+
+function ensureVisualSlots(count) {
+  while (visPool.length < count) visPool.push(createVisualCanvas());
+  visPool.forEach((c, i) => {
+    c.style.display = i < count ? "" : "none";
+    c.dataset.theme = document.documentElement.dataset.theme || "pocket";
+  });
+  const has = count > 0;
+  visualsEl.classList.toggle("show", has);
+  if (has) {
+    scheduleViewportLayout();
+    layoutVisualCanvases({ force: true });
+  }
+}
+
+function countVisualCalls(code) {
+  const stripped = code
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return (stripped.match(/\.(?:pianoroll|scope|tscope|fscope|spectrum)\s*\(/g) || []).length;
+}
+
+function prepareVisualsForCode(code) {
+  ensureVisualSlots(countVisualCalls(code));
+}
+
+function allocVisualCanvas(options = {}) {
+  const slot = visCount++;
+  let c = visPool[slot];
+  if (!c) {
+    c = createVisualCanvas();
+    visPool.push(c);
+  }
+  c.style.display = "";
+  c.dataset.theme = document.documentElement.dataset.theme || "pocket";
+  visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
+  scheduleViewportLayout();
+  sizeVisualCanvas(c);
+  return {
+    id: VISUAL_ID_BASE + slot,
+    ctx: themedCanvasContext(c.getContext("2d"), options)
+  };
+}
+
+function layoutVisualCanvases(options = {}) {
   visPool.forEach(c => {
-    const r = c.getBoundingClientRect();
-    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
-    if (w && h && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; }
+    if (c.style.display !== "none") sizeVisualCanvas(c, options);
   });
 }
-window.addEventListener("resize", () => setTimeout(layoutVisualCanvases, 250));
+window.addEventListener("resize", () => setTimeout(() => layoutVisualCanvases({ force: true }), 250));
 
 function collectActiveNoteRanges() {
   const ranges = [];
@@ -2584,9 +2868,6 @@ function drawActiveNoteOverlay() {
 
 function startActiveNoteOverlay() {
   stopActiveNoteOverlay();
-  activeNoteStep = 0;
-  drawActiveNoteOverlay();
-  activeNoteTimer = setInterval(drawActiveNoteOverlay, Math.max(180, Math.min(520, 30000 / bpm)));
 }
 
 function stopActiveNoteOverlay() {
@@ -2598,8 +2879,13 @@ function stopActiveNoteOverlay() {
 function finishVisuals() {
   while (visPool.length > visCount) visPool.pop().remove(); // 使われなかった余りを撤去
   const has = visPool.length > 0;
+  visPool.forEach(c => {
+    c.style.display = "";
+    c.dataset.theme = document.documentElement.dataset.theme || "pocket";
+  });
   visualsEl.classList.toggle("show", has);
   ed.classList.toggle("withVisuals", has);
+  scheduleViewportLayout();
   layoutVisualCanvases();
 }
 
@@ -2611,8 +2897,12 @@ function patchVisuals() {
   // pianoroll: ctxの差し替えだけでよい(描画は本体の共通ループが回す)
   const origRoll = P.pianoroll;
   P.pianoroll = function (opts = {}) {
-    const ctx = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
-    return origRoll.call(this, { ...themedVisualOptions(opts), ctx });
+    const visual = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
+    const id = opts.id !== undefined ? opts.id : visual.id;
+    const visualOpts = themedMutableVisualOptions(opts, { id, ctx: visual.ctx });
+    const taggedPattern = typeof this.tag === "function" ? this.tag(id) : this;
+    origRoll.call(taggedPattern, visualOpts);
+    return this;
   };
   // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
   // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
@@ -2620,9 +2910,9 @@ function patchVisuals() {
     const orig = P[name];
     if (!orig) return;
     P[name] = function (opts = {}) {
-      const ctx = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
-      const id = opts.id !== undefined ? opts.id : 1 + visCount;
-      const visualOpts = themedMutableVisualOptions(opts, { id, ctx });
+      const visual = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
+      const id = opts.id !== undefined ? opts.id : visual.id;
+      const visualOpts = themedMutableVisualOptions(opts, { id, ctx: visual.ctx });
       return orig.call(this, visualOpts);
     };
   });
@@ -2647,6 +2937,7 @@ async function runEval() {
     if (mySeq !== evalSeq) return; // 追い越された/停止された要求は評価自体をスキップ
     try {
       visCount = 0; // 視覚化キャンバスの割り当てを巻き戻す(評価中に再割り当てされる)
+      prepareVisualsForCode(code);
       await evaluate(code);
       if (mySeq !== evalSeq) {
         // 評価中に停止された場合のみ黙らせる(新しい評価が控えている場合は触らない)
@@ -2723,17 +3014,40 @@ document.addEventListener("visibilitychange", () => {
 /* ─────────────────────────────────────
    ソフトキーボードの直上にドックを固定
 ───────────────────────────────────── */
+let viewportLayoutFrame = 0;
+let keyboardOpen = false;
+const KEYBOARD_INSET_THRESHOLD = 80;
+
+function scheduleViewportLayout() {
+  if (viewportLayoutFrame) return;
+  viewportLayoutFrame = requestAnimationFrame(() => {
+    viewportLayoutFrame = 0;
+    layoutDock();
+  });
+}
+
 function layoutDock() {
   const vv = window.visualViewport;
-  if (!vv) return;
-  const offset = window.innerHeight - vv.height - vv.offsetTop;
-  dock.style.transform = "translate3d(0," + (-Math.max(0, Math.round(offset))) + "px,0)";
+  const offset = vv ? window.innerHeight - vv.height - vv.offsetTop : 0;
+  const keyboardInset = Math.max(0, Math.round(offset));
+  document.documentElement.style.setProperty("--keyboard-inset", keyboardInset + "px");
+  const nextKeyboardOpen = keyboardInset > KEYBOARD_INSET_THRESHOLD;
+  if (nextKeyboardOpen !== keyboardOpen) {
+    keyboardOpen = nextKeyboardOpen;
+    document.body.classList.toggle("keyboardOpen", keyboardOpen);
+    if (!keyboardOpen) setTimeout(layoutVisualCanvases, 50);
+  }
+  syncDockHeight();
+  dock.style.transform = "translate3d(0," + (-keyboardInset) + "px,0)";
+}
+if ("ResizeObserver" in window) {
+  new ResizeObserver(scheduleViewportLayout).observe(dock);
 }
 if (window.visualViewport) {
   visualViewport.addEventListener("resize", layoutDock);
   visualViewport.addEventListener("scroll", layoutDock);
-  layoutDock();
 }
+layoutDock();
 
 /* ─────────────────────────────────────
    ドロワー・フォントサイズ・初期値
@@ -2819,6 +3133,8 @@ if (store) {
 }
 function applyFont() {
   ed.style.fontSize = fontSize + "px";
+  lineNums.style.fontSize = fontSize + "px";
+  updateEditorGuides();
   if (store) { try { store.setItem(FONT_KEY, String(fontSize)); } catch (e) {} }
 }
 bindTap(document.getElementById("fontMinus"), () => {
@@ -2847,6 +3163,7 @@ if (sharedSong) {
   ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
 }
 syncBpmFromCode();
+updateEditorGuides();
 hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
