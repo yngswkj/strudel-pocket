@@ -2900,7 +2900,9 @@ function patchVisuals() {
     const visual = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
     const id = opts.id !== undefined ? opts.id : visual.id;
     const visualOpts = themedMutableVisualOptions(opts, { id, ctx: visual.ctx });
-    return origRoll.call(this, visualOpts);
+    const taggedPattern = typeof this.tag === "function" ? this.tag(id) : this;
+    origRoll.call(taggedPattern, visualOpts);
+    return this;
   };
   // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
   // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
