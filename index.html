@@ -3365,7 +3365,11 @@ async function runEval() {
       acquireWakeLock();
     } catch (e) {
       if (mySeq !== evalSeq) return;
-      if (!playing) { wantPlaying = false; setTransport(false); } // 鳴っていないなら▶に戻す
+      if (!playing) {
+        wantPlaying = false;
+        setTransport(false);
+        if (!visualsEnabled()) collapseVisuals();
+      } // 鳴っていないなら▶に戻す
       setStatus(playing ? "再生中(直前のエラーあり)" : "エラー", playing ? "playing" : "error");
       showError(String(e && e.message ? e.message : e));
     }
