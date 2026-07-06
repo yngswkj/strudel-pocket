@@ -140,7 +140,7 @@
     font-variant-numeric:tabular-nums;text-align:right;
   }
   #lineNumsInner{padding-top:14px;will-change:transform}
-  #lineNums .ln{height:1.55em;line-height:1.55;padding-right:5px}
+  #lineNums .ln{line-height:1.55;padding-right:5px;box-sizing:border-box}
   #activeLine{
     position:absolute;z-index:3;left:calc(var(--line-gutter) + 8px);right:10px;
     height:0;border-bottom:1px solid color-mix(in srgb,var(--cool) 62%,transparent);
@@ -2151,25 +2151,113 @@ bpmSlider.addEventListener("input", () => {
 /* ─────────────────────────────────────
    エディタ補助表示(行番号 + カーソル行)
 ───────────────────────────────────── */
-let renderedLineCount = 0;
+let renderedGuideSignature = "";
+let editorLineMetrics = [];
+let guideMeasureEl = null;
 
-function editorLineCount() {
-  return (ed.value.match(/\n/g) || []).length + 1;
+function editorLines() {
+  return ed.value.split("\n");
+}
+
+function cssPx(value, fallback = 0) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function currentEditorGuideStyle() {
+  const cs = getComputedStyle(ed);
+  const fontSize = cssPx(cs.fontSize, 16);
+  const lineHeight = cssPx(cs.lineHeight, fontSize * 1.55);
+  const paddingTop = cssPx(cs.paddingTop);
+  const paddingLeft = cssPx(cs.paddingLeft);
+  const paddingRight = cssPx(cs.paddingRight);
+  const contentWidth = Math.max(1, ed.clientWidth - paddingLeft - paddingRight);
+  return {
+    font: cs.font,
+    fontSize,
+    lineHeight,
+    letterSpacing: cs.letterSpacing,
+    tabSize: cs.tabSize || cs.getPropertyValue("tab-size") || "8",
+    paddingTop,
+    contentWidth
+  };
+}
+
+function ensureGuideMeasureEl() {
+  if (guideMeasureEl) return guideMeasureEl;
+  guideMeasureEl = document.createElement("div");
+  guideMeasureEl.setAttribute("aria-hidden", "true");
+  Object.assign(guideMeasureEl.style, {
+    position: "fixed",
+    left: "-9999px",
+    top: "0",
+    zIndex: "-1",
+    visibility: "hidden",
+    pointerEvents: "none",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    wordBreak: "normal",
+    boxSizing: "content-box",
+    padding: "0",
+    border: "0",
+    margin: "0"
+  });
+  document.body.appendChild(guideMeasureEl);
+  return guideMeasureEl;
+}
+
+function syncGuideMeasureStyle(measure, guide) {
+  Object.assign(measure.style, {
+    width: guide.contentWidth + "px",
+    font: guide.font,
+    fontSize: guide.fontSize + "px",
+    lineHeight: guide.lineHeight + "px",
+    letterSpacing: guide.letterSpacing,
+    tabSize: guide.tabSize
+  });
+}
+
+function measureEditorLineMetrics(lines, guide) {
+  const measure = ensureGuideMeasureEl();
+  syncGuideMeasureStyle(measure, guide);
+  const metrics = [];
+  let top = 0;
+  lines.forEach(line => {
+    measure.textContent = line.length ? line : "\u00a0";
+    const height = Math.max(guide.lineHeight, Math.ceil(measure.scrollHeight));
+    metrics.push({ top, height });
+    top += height;
+  });
+  measure.textContent = "";
+  return metrics;
 }
 
 function updateLineNumbers() {
-  const count = editorLineCount();
-  if (count !== renderedLineCount) {
+  const lines = editorLines();
+  const guide = currentEditorGuideStyle();
+  const signature = [
+    ed.value,
+    guide.contentWidth,
+    guide.font,
+    guide.lineHeight,
+    guide.letterSpacing,
+    guide.tabSize
+  ].join("\u001f");
+  if (signature !== renderedGuideSignature) {
+    editorLineMetrics = measureEditorLineMetrics(lines, guide);
     const frag = document.createDocumentFragment();
-    for (let i = 1; i <= count; i++) {
+    lines.forEach((line, i) => {
       const n = document.createElement("div");
+      const metric = editorLineMetrics[i] || { height: guide.lineHeight };
       n.className = "ln";
-      n.textContent = String(i);
+      n.textContent = String(i + 1);
+      n.style.height = Math.max(guide.lineHeight, metric.height) + "px";
+      n.style.lineHeight = guide.lineHeight + "px";
       frag.appendChild(n);
-    }
+    });
     lineNumsInner.textContent = "";
     lineNumsInner.appendChild(frag);
-    renderedLineCount = count;
+    renderedGuideSignature = signature;
   }
   lineNumsInner.style.transform = "translateY(" + Math.round(-ed.scrollTop) + "px)";
 }
@@ -2178,12 +2266,43 @@ function activeLineIndex() {
   return (ed.value.slice(0, ed.selectionStart).match(/\n/g) || []).length;
 }
 
+function activeLineStart(index) {
+  if (index <= 0) return 0;
+  let pos = -1;
+  for (let i = 0; i < index; i++) {
+    pos = ed.value.indexOf("\n", pos + 1);
+    if (pos === -1) return ed.value.length;
+  }
+  return pos + 1;
+}
+
+function activeVisualRowOffset(index, guide) {
+  const lines = editorLines();
+  const line = lines[index] || "";
+  const offset = Math.max(0, ed.selectionStart - activeLineStart(index));
+  const measure = ensureGuideMeasureEl();
+  syncGuideMeasureStyle(measure, guide);
+  measure.textContent = "";
+  if (offset > 0) measure.appendChild(document.createTextNode(line.slice(0, offset)));
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  measure.appendChild(marker);
+  const top = marker.offsetTop || 0;
+  measure.textContent = "";
+  return Math.max(0, top);
+}
+
 function updateActiveLine() {
-  const cs = getComputedStyle(ed);
-  const fontSize = parseFloat(cs.fontSize) || 16;
-  const lineHeight = parseFloat(cs.lineHeight) || fontSize * 1.55;
-  const paddingTop = parseFloat(cs.paddingTop) || 0;
-  const y = paddingTop + (activeLineIndex() + 1) * lineHeight - ed.scrollTop - 1;
+  if (!editorLineMetrics.length) updateLineNumbers();
+  const guide = currentEditorGuideStyle();
+  const index = activeLineIndex();
+  const metric = editorLineMetrics[index];
+  if (!metric) {
+    activeLine.style.display = "none";
+    return;
+  }
+  const rowOffset = activeVisualRowOffset(index, guide);
+  const y = guide.paddingTop + metric.top + rowOffset + guide.lineHeight - ed.scrollTop - 1;
   if (y < 0 || y > ed.clientHeight) {
     activeLine.style.display = "none";
     return;
@@ -2512,6 +2631,7 @@ const visPool = [];  // 生成済みキャンバス(評価をまたいで再利�
 let visCount = 0;    // 今回の評価で割り当てた数
 let activeNoteTimer = null;
 let activeNoteStep = 0;
+const VISUAL_ID_BASE = 1000;
 
 function themeColor(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -2611,30 +2731,74 @@ function themedMutableVisualOptions(opts, forced = {}) {
   });
 }
 
-function allocVisualCanvas(options = {}) {
-  let c = visPool[visCount];
-  if (!c) {
-    c = document.createElement("canvas");
-    visualsEl.appendChild(c);
-    visPool.push(c);
-  }
-  c.dataset.theme = document.documentElement.dataset.theme || "pocket";
-  visCount++;
-  visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
-  scheduleViewportLayout();
-  layoutVisualCanvases();
-  return themedCanvasContext(c.getContext("2d"), options);
+function createVisualCanvas() {
+  const c = document.createElement("canvas");
+  visualsEl.appendChild(c);
+  return c;
 }
 
-function layoutVisualCanvases() {
+function sizeVisualCanvas(c, { force = false } = {}) {
   const dpr = window.devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  const w = Math.round(r.width * dpr);
+  const h = Math.round(r.height * dpr);
+  if (!w || !h) return;
+  if (force || c.dataset.sized !== "1") {
+    c.width = w;
+    c.height = h;
+    c.dataset.sized = "1";
+  }
+}
+
+function ensureVisualSlots(count) {
+  while (visPool.length < count) visPool.push(createVisualCanvas());
+  visPool.forEach((c, i) => {
+    c.style.display = i < count ? "" : "none";
+    c.dataset.theme = document.documentElement.dataset.theme || "pocket";
+  });
+  const has = count > 0;
+  visualsEl.classList.toggle("show", has);
+  if (has) {
+    scheduleViewportLayout();
+    layoutVisualCanvases({ force: true });
+  }
+}
+
+function countVisualCalls(code) {
+  const stripped = code
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return (stripped.match(/\.(?:pianoroll|scope|tscope|fscope|spectrum)\s*\(/g) || []).length;
+}
+
+function prepareVisualsForCode(code) {
+  ensureVisualSlots(countVisualCalls(code));
+}
+
+function allocVisualCanvas(options = {}) {
+  const slot = visCount++;
+  let c = visPool[slot];
+  if (!c) {
+    c = createVisualCanvas();
+    visPool.push(c);
+  }
+  c.style.display = "";
+  c.dataset.theme = document.documentElement.dataset.theme || "pocket";
+  visualsEl.classList.add("show"); // 評価中に呼ばれるため即表示してサイズ確定
+  scheduleViewportLayout();
+  sizeVisualCanvas(c);
+  return {
+    id: VISUAL_ID_BASE + slot,
+    ctx: themedCanvasContext(c.getContext("2d"), options)
+  };
+}
+
+function layoutVisualCanvases(options = {}) {
   visPool.forEach(c => {
-    const r = c.getBoundingClientRect();
-    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
-    if (w && h && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; }
+    if (c.style.display !== "none") sizeVisualCanvas(c, options);
   });
 }
-window.addEventListener("resize", () => setTimeout(layoutVisualCanvases, 250));
+window.addEventListener("resize", () => setTimeout(() => layoutVisualCanvases({ force: true }), 250));
 
 function collectActiveNoteRanges() {
   const ranges = [];
@@ -2715,6 +2879,10 @@ function stopActiveNoteOverlay() {
 function finishVisuals() {
   while (visPool.length > visCount) visPool.pop().remove(); // 使われなかった余りを撤去
   const has = visPool.length > 0;
+  visPool.forEach(c => {
+    c.style.display = "";
+    c.dataset.theme = document.documentElement.dataset.theme || "pocket";
+  });
   visualsEl.classList.toggle("show", has);
   ed.classList.toggle("withVisuals", has);
   scheduleViewportLayout();
@@ -2729,8 +2897,10 @@ function patchVisuals() {
   // pianoroll: ctxの差し替えだけでよい(描画は本体の共通ループが回す)
   const origRoll = P.pianoroll;
   P.pianoroll = function (opts = {}) {
-    const ctx = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
-    return origRoll.call(this, { ...themedVisualOptions(opts), ctx });
+    const visual = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
+    const id = opts.id !== undefined ? opts.id : visual.id;
+    const visualOpts = themedMutableVisualOptions(opts, { id, ctx: visual.ctx });
+    return origRoll.call(this, visualOpts);
   };
   // scope系: ctxに加えて id(アナライザ+描画ループのキー)を自動採番し、
   // 複数表示や本体ループ(id:1)との衝突を避ける。ユーザー指定があればそちらが勝つ
@@ -2738,9 +2908,9 @@ function patchVisuals() {
     const orig = P[name];
     if (!orig) return;
     P[name] = function (opts = {}) {
-      const ctx = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
-      const id = opts.id !== undefined ? opts.id : 1 + visCount;
-      const visualOpts = themedMutableVisualOptions(opts, { id, ctx });
+      const visual = allocVisualCanvas({ rewriteDefaultColors: !hasOwnOption(opts, "color") });
+      const id = opts.id !== undefined ? opts.id : visual.id;
+      const visualOpts = themedMutableVisualOptions(opts, { id, ctx: visual.ctx });
       return orig.call(this, visualOpts);
     };
   });
@@ -2765,6 +2935,7 @@ async function runEval() {
     if (mySeq !== evalSeq) return; // 追い越された/停止された要求は評価自体をスキップ
     try {
       visCount = 0; // 視覚化キャンバスの割り当てを巻き戻す(評価中に再割り当てされる)
+      prepareVisualsForCode(code);
       await evaluate(code);
       if (mySeq !== evalSeq) {
         // 評価中に停止された場合のみ黙らせる(新しい評価が控えている場合は触らない)
