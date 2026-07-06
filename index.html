@@ -32,6 +32,7 @@
     --dock-height:148px;
     --keyboard-inset:0px;
     --editor-dock-gap:28px;
+    --line-gutter:30px;
   }
   /* ── テーマ(本家 green-text / archBtw の配色を移植) ── */
   :root[data-theme="greenText"]{
@@ -118,16 +119,33 @@
   }
 
   /* ── エディタ ─────────────────────── */
+  #editorWrap{
+    flex:1;min-height:0;width:100%;position:relative;overflow:hidden;
+  }
   #ed{
-    flex:1;min-height:0;width:100%;resize:none;border:none;outline:none;
+    position:absolute;inset:0;z-index:2;
+    width:100%;height:100%;resize:none;border:none;outline:none;
     background:transparent;color:var(--text); /* 透明: 背面の視覚化キャンバスを見せる */
     font-family:var(--mono);font-size:16px;line-height:1.55;
-    padding:14px 14px calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap));
+    padding:14px 14px calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap)) calc(var(--line-gutter) + 10px);
     scroll-padding-bottom:calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap));
     overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
     caret-color:var(--hot);
   }
   #ed::selection{background:rgba(63,214,192,.28)}
+  #lineNums{
+    position:absolute;z-index:4;left:0;top:0;bottom:0;width:var(--line-gutter);
+    overflow:hidden;pointer-events:none;
+    color:var(--muted);opacity:.52;font-family:var(--mono);font-size:16px;line-height:1.55;
+    font-variant-numeric:tabular-nums;text-align:right;
+  }
+  #lineNumsInner{padding-top:14px;will-change:transform}
+  #lineNums .ln{height:1.55em;line-height:1.55;padding-right:5px}
+  #activeLine{
+    position:absolute;z-index:3;left:calc(var(--line-gutter) + 8px);right:10px;
+    height:0;border-bottom:1px solid color-mix(in srgb,var(--cool) 62%,transparent);
+    pointer-events:none;display:none;box-shadow:0 1px 0 rgba(0,0,0,.28);
+  }
 
   /* ── 下部ドック ───────────────────── */
   #dock{
@@ -522,9 +540,13 @@
   <button id="playBtn" aria-label="再生">▶</button>
 </header>
 
-<textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
-  autocomplete="off" inputmode="email" lang="en"
-  placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+<div id="editorWrap">
+  <div id="lineNums" aria-hidden="true"><div id="lineNumsInner"></div></div>
+  <div id="activeLine" aria-hidden="true"></div>
+  <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
+    autocomplete="off" inputmode="email" lang="en"
+    placeholder='ここにコードを書く。例: s("bd sd")'></textarea>
+</div>
 <div id="activeNoteOverlay" aria-hidden="true"></div>
 
 <div id="dock">
@@ -639,6 +661,9 @@ console.log("%c🥨 Strudel Pocket", "color:#3fd6c0;font-size:16px;font-weight:b
    要素
 ───────────────────────────────────── */
 const ed = document.getElementById("ed");
+const lineNums = document.getElementById("lineNums");
+const lineNumsInner = document.getElementById("lineNumsInner");
+const activeLine = document.getElementById("activeLine");
 const dock = document.getElementById("dock");
 const dot = document.getElementById("dot");
 const statusEl = document.getElementById("status");
@@ -1898,10 +1923,14 @@ function bindInsert(btn, text, caret) {
 bindTap(soundPasteBtn, pasteCopiedSound);
 bindTap(soundPasteClear, () => hideSoundPasteBar(true));
 bindTap(toolsToggle, () => {
+  if (document.activeElement === ed) ed.blur();
   inputToolsVisible = !inputToolsVisible;
   applyInputToolsVisibility({ persist: true });
 });
-window.addEventListener("resize", layoutDock);
+window.addEventListener("resize", () => {
+  layoutDock();
+  updateEditorGuides();
+});
 
 function insertAtCursor(text, caret) {
   ed.focus();
@@ -2120,11 +2149,61 @@ bpmSlider.addEventListener("input", () => {
 });
 
 /* ─────────────────────────────────────
+   エディタ補助表示(行番号 + カーソル行)
+───────────────────────────────────── */
+let renderedLineCount = 0;
+
+function editorLineCount() {
+  return (ed.value.match(/\n/g) || []).length + 1;
+}
+
+function updateLineNumbers() {
+  const count = editorLineCount();
+  if (count !== renderedLineCount) {
+    const frag = document.createDocumentFragment();
+    for (let i = 1; i <= count; i++) {
+      const n = document.createElement("div");
+      n.className = "ln";
+      n.textContent = String(i);
+      frag.appendChild(n);
+    }
+    lineNumsInner.textContent = "";
+    lineNumsInner.appendChild(frag);
+    renderedLineCount = count;
+  }
+  lineNumsInner.style.transform = "translateY(" + Math.round(-ed.scrollTop) + "px)";
+}
+
+function activeLineIndex() {
+  return (ed.value.slice(0, ed.selectionStart).match(/\n/g) || []).length;
+}
+
+function updateActiveLine() {
+  const cs = getComputedStyle(ed);
+  const fontSize = parseFloat(cs.fontSize) || 16;
+  const lineHeight = parseFloat(cs.lineHeight) || fontSize * 1.55;
+  const paddingTop = parseFloat(cs.paddingTop) || 0;
+  const y = paddingTop + (activeLineIndex() + 1) * lineHeight - ed.scrollTop - 1;
+  if (y < 0 || y > ed.clientHeight) {
+    activeLine.style.display = "none";
+    return;
+  }
+  activeLine.style.display = "block";
+  activeLine.style.top = Math.round(y) + "px";
+}
+
+function updateEditorGuides() {
+  updateLineNumbers();
+  updateActiveLine();
+}
+
+/* ─────────────────────────────────────
    編集後の共通処理(自動保存 + 再生中なら再評価)
 ───────────────────────────────────── */
 let saveTimer = null, evalTimer = null;
 function afterEdit() {
   syncBpmFromCode();
+  updateEditorGuides();
   if (store) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -2190,6 +2269,7 @@ function moveCaret(d) {
   p = Math.max(0, Math.min(ed.value.length, p));
   ed.selectionStart = ed.selectionEnd = p;
   updateScrubber();
+  updateActiveLine();
 }
 
 document.getElementById("caretL").addEventListener("pointerdown", e => {
@@ -2311,14 +2391,18 @@ document.getElementById("stepPlus").addEventListener("pointerdown", e => {
 });
 
 document.addEventListener("selectionchange", () => {
-  if (document.activeElement === ed) updateScrubber();
+  if (document.activeElement === ed) {
+    updateScrubber();
+    updateActiveLine();
+  }
 });
-ed.addEventListener("pointerup", updateScrubber);
-ed.addEventListener("keyup", updateScrubber);
+ed.addEventListener("pointerup", () => { updateScrubber(); updateActiveLine(); });
+ed.addEventListener("keyup", () => { updateScrubber(); updateActiveLine(); });
 ed.addEventListener("scroll", () => {
-  if (playing) drawActiveNoteOverlay();
+  updateEditorGuides();
 });
 ed.addEventListener("blur", () => {
+  updateActiveLine();
   // フェーダー操作へ移った場合は残す
   setTimeout(() => {
     const a = document.activeElement;
@@ -2620,9 +2704,6 @@ function drawActiveNoteOverlay() {
 
 function startActiveNoteOverlay() {
   stopActiveNoteOverlay();
-  activeNoteStep = 0;
-  drawActiveNoteOverlay();
-  activeNoteTimer = setInterval(drawActiveNoteOverlay, Math.max(180, Math.min(520, 30000 / bpm)));
 }
 
 function stopActiveNoteOverlay() {
@@ -2879,6 +2960,8 @@ if (store) {
 }
 function applyFont() {
   ed.style.fontSize = fontSize + "px";
+  lineNums.style.fontSize = fontSize + "px";
+  updateEditorGuides();
   if (store) { try { store.setItem(FONT_KEY, String(fontSize)); } catch (e) {} }
 }
 bindTap(document.getElementById("fontMinus"), () => {
@@ -2907,6 +2990,7 @@ if (sharedSong) {
   ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
 }
 syncBpmFromCode();
+updateEditorGuides();
 hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
