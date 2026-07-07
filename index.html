@@ -133,14 +133,46 @@
     caret-color:var(--hot);
   }
   #ed::selection{background:rgba(63,214,192,.28)}
+  #ed::placeholder{color:var(--muted);-webkit-text-fill-color:var(--muted)}
+  #ed::-webkit-scrollbar{display:none}
+  #ed{scrollbar-width:none}
+  body.hlOn #ed{
+    color:transparent;-webkit-text-fill-color:transparent;
+  }
+  body.hlOn #ed::placeholder{
+    color:var(--muted);-webkit-text-fill-color:var(--muted);
+  }
+  #hl{
+    position:absolute;inset:0;z-index:1;overflow:hidden;pointer-events:none;
+    display:none;color:var(--text);font-family:var(--mono);font-size:16px;line-height:1.55;
+  }
+  body.hlOn #hl{display:block}
+  #hlInner{
+    min-height:100%;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;
+    padding:14px 14px calc(var(--dock-height) + var(--keyboard-inset) + var(--editor-dock-gap)) calc(var(--line-gutter) + 10px);
+    font:inherit;line-height:inherit;tab-size:8;will-change:transform;
+  }
+  .tk-comment{color:color-mix(in srgb,var(--muted) 74%,var(--bg))}
+  .tk-string{color:color-mix(in srgb,var(--cool) 72%,var(--text))}
+  .tk-number{color:color-mix(in srgb,var(--hot) 82%,var(--text))}
+  .tk-fn{color:color-mix(in srgb,var(--cool) 54%,var(--hot));font-weight:700}
+  .tk-bracket{color:color-mix(in srgb,var(--muted) 68%,var(--text))}
+  .tk-bm{
+    color:var(--hot);background:color-mix(in srgb,var(--hot) 24%,transparent);
+    border-radius:3px;box-shadow:0 0 0 1px color-mix(in srgb,var(--hot) 52%,transparent);
+  }
   #lineNums{
-    position:absolute;z-index:4;left:0;top:0;bottom:0;width:var(--line-gutter);
-    overflow:hidden;pointer-events:none;
+    position:absolute;z-index:4;left:0;top:0;bottom:0;width:calc(var(--line-gutter) + 8px);
+    overflow:hidden;pointer-events:auto;touch-action:none;
     color:var(--muted);opacity:.52;font-family:var(--mono);font-size:16px;line-height:1.55;
     font-variant-numeric:tabular-nums;text-align:right;
   }
   #lineNumsInner{padding-top:14px;will-change:transform}
-  #lineNums .ln{line-height:1.55;padding-right:5px;box-sizing:border-box}
+  #lineNums .ln{line-height:1.55;padding-right:13px;box-sizing:border-box}
+  #lineNums .ln.muted{
+    opacity:.45;text-decoration:line-through;text-decoration-thickness:1px;
+    text-decoration-color:color-mix(in srgb,var(--warn) 70%,transparent);
+  }
   #activeLine{
     position:absolute;z-index:3;left:calc(var(--line-gutter) + 8px);right:10px;
     height:0;border-bottom:1px solid color-mix(in srgb,var(--cool) 62%,transparent);
@@ -259,6 +291,18 @@
     color:var(--text);border-radius:999px;padding:9px 14px;
     font-family:var(--mono);font-size:13px;
     touch-action:pan-x; /* 横スクロールを許可(スクロール開始でpointercancelが発火) */
+  }
+  .chip.completion{
+    border-color:color-mix(in srgb,var(--cool) 68%,var(--line));
+    color:var(--cool);background:color-mix(in srgb,var(--cool) 10%,var(--surface2));
+  }
+  #editrow.completing{align-items:flex-start}
+  #editrow.completing .ekey{height:36px}
+  #editrow.completing #chips{
+    flex-wrap:wrap;overflow-x:visible;row-gap:6px;
+  }
+  #editrow.completing .chip.completion{
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;
   }
   .chip:active{background:var(--line)}
 
@@ -606,6 +650,7 @@
 </header>
 
 <div id="editorWrap">
+  <div id="hl" aria-hidden="true"><div id="hlInner"></div></div>
   <div id="lineNums" aria-hidden="true"><div id="lineNumsInner"></div></div>
   <div id="activeLine" aria-hidden="true"></div>
   <textarea id="ed" spellcheck="false" autocapitalize="off" autocorrect="off"
@@ -725,6 +770,10 @@
             <button data-mode="playing">再生中</button>
             <button data-mode="off">OFF</button>
           </div>
+          <label class="settingToggle">
+            <input id="highlightToggle" type="checkbox">
+            <span>シンタックスハイライト</span>
+          </label>
         </div>
       </section>
     </div>
@@ -749,6 +798,8 @@ console.log("%c🥨 Strudel Pocket", "color:#3fd6c0;font-size:16px;font-weight:b
    要素
 ───────────────────────────────────── */
 const ed = document.getElementById("ed");
+const hl = document.getElementById("hl");
+const hlInner = document.getElementById("hlInner");
 const lineNums = document.getElementById("lineNums");
 const lineNumsInner = document.getElementById("lineNumsInner");
 const activeLine = document.getElementById("activeLine");
@@ -770,6 +821,7 @@ const soundPasteClear = document.getElementById("soundPasteClear");
 const updateModeControls = document.getElementById("updateModeControls");
 const visualModeControls = document.getElementById("visualModeControls");
 const backgroundPlayToggle = document.getElementById("backgroundPlayToggle");
+const highlightToggle = document.getElementById("highlightToggle");
 const bpmSlider = document.getElementById("bpmSlider");
 const bpmValueEl = document.getElementById("bpmValue");
 
@@ -786,6 +838,8 @@ let updateMode = "live";
 let visualMode = "on";
 let backgroundPlayEnabled = false;
 let inputToolsVisible = true;
+let highlightEnabled = true;
+let renderedHighlightSignature = "";
 let bpm = 120;
 
 /* ─────────────────────────────────────
@@ -810,6 +864,7 @@ const AUTO_UPDATE_KEY = "strudel-pocket-auto-update";
 const UPDATE_MODE_KEY = "strudel-pocket-update-mode";
 const VISUAL_MODE_KEY = "strudel-pocket-visual-mode";
 const BACKGROUND_PLAY_KEY = "strudel-pocket-background-play";
+const HIGHLIGHT_KEY = "strudel-pocket-highlight";
 const BPM_KEY = "strudel-pocket-bpm";
 const TOOLS_KEY = "strudel-pocket-tools-visible";
 const RECENT_SOUNDS_KEY = "strudel-pocket-recent-sounds";
@@ -838,6 +893,7 @@ if (store) {
 }
 backgroundPlayEnabled = store ? store.getItem(BACKGROUND_PLAY_KEY) === "1" : false;
 inputToolsVisible = store ? store.getItem(TOOLS_KEY) !== "0" : true;
+highlightEnabled = store ? store.getItem(HIGHLIGHT_KEY) !== "0" : true;
 bpm = store ? parseInt(store.getItem(BPM_KEY) || "120", 10) : 120;
 if (!Number.isFinite(bpm) || bpm < 40 || bpm > 220) bpm = 120;
 
@@ -971,6 +1027,9 @@ const KEYS = [
   ['<>', '< >', 1],
   ['()', '( )', 1],
 ];
+const PAIRS = { "(": ")", "[": "]", "<": ">", '"': '"' };
+const CLOSE_PAIRS = {};
+Object.keys(PAIRS).forEach(open => { CLOSE_PAIRS[PAIRS[open]] = open; });
 
 const STRUDEL_CDN = "https://strudel.b-cdn.net";
 const SOUNDFONT_MODULE_URL = "https://esm.sh/@strudel/soundfonts@1.3.0?bundle";
@@ -997,11 +1056,49 @@ const SOUND_CHIPS = [
   ['s("mridangam_ta")',          'mridangam',    null],
   ['s("wt_digital").note("c3")', 'wt digital',   null],
 ];
+const STRUDEL_COMPLETION_NAMES = [
+  "add", "adsr", "almostAlways", "almostNever", "anchor", "attack", "bank", "begin", "binary", "brak",
+  "brake", "brutal", "cat", "cc", "channel", "chord", "clip", "compressor", "contrast", "crush",
+  "cut", "decay", "degrade", "degradeBy", "delay", "delayfeedback", "delaytime", "detune", "distort", "divisor",
+  "echo", "end", "euclid", "euclidLegato", "euclidRot", "every", "fast", "fastcat", "fit", "fix",
+  "fm", "fmi", "gain", "gap", "group", "hpf", "hpq", "hurry", "inside", "invert",
+  "iter", "jux", "late", "legato", "linger", "loopAt", "lpf", "lpenv", "lpq", "mask",
+  "n", "never", "note", "off", "orbit", "pace", "pan", "panspan", "penv", "pianoroll",
+  "ply", "postgain", "rarely", "release", "repr", "restart", "rev", "room", "roomsize", "s",
+  "scale", "segment", "setcps", "setcpm", "shape", "slow", "slowcat", "sometimes", "sound", "speed",
+  "splice", "split", "spectrum", "stack", "struct", "striate", "stretch", "strum", "strumtime", "superimpose",
+  "sustain", "swing", "swingBy", "take", "transpose", "triode", "tscope", "velocity", "vib", "vowel",
+  "when", "with", "within", "x", "zoom"
+];
+const FALLBACK_SOUND_COMPLETION_NAMES = [
+  "bd", "sd", "hh", "oh", "cp", "rim", "clap", "kick", "snare", "hat", "crash", "ride",
+  "808bd", "808sd", "909bd", "909sd", "piano", "sawtooth", "triangle", "square", "sine",
+  "gm_acoustic_grand_piano", "gm_bright_acoustic_piano", "mridangam_ta", "wt_digital"
+];
+
+function uniqueSortedNames(names) {
+  return [...new Set(names.filter(Boolean).map(name => String(name).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function namesFromInsertText(text) {
+  const names = [];
+  for (const match of String(text || "").matchAll(/[A-Za-z_$][A-Za-z0-9_$]*(?=\()/g)) {
+    names.push(match[0]);
+  }
+  return names;
+}
+
+const CHIP_COMPLETION_NAMES = uniqueSortedNames([
+  ...CHIP_MODES.flatMap(mode => mode.chips.flatMap(([text]) => namesFromInsertText(text))),
+  ...SOUND_CHIPS.flatMap(([text]) => namesFromInsertText(text))
+]);
+const FUNCTION_COMPLETION_NAMES = uniqueSortedNames([...STRUDEL_COMPLETION_NAMES, ...CHIP_COMPLETION_NAMES]);
 
 /* ─────────────────────────────────────
    UI生成
 ───────────────────────────────────── */
 const modesEl = document.getElementById("modes");
+const editrowEl = document.getElementById("editrow");
 const chipsEl = document.getElementById("chips");
 let chipMode = CHIP_MODES[0].id;
 if (store) {
@@ -1023,12 +1120,15 @@ function renderChipModes() {
 
 function setChipMode(modeId) {
   if (!CHIP_MODES.some(m => m.id === modeId)) return;
+  clearCompletions({ render: false });
   chipMode = modeId;
   if (store) { try { store.setItem(MODE_KEY, modeId); } catch (e) {} }
   renderChips();
 }
 
 function renderChips() {
+  editrowEl.classList.remove("completing");
+  chipsEl.classList.remove("completing");
   chipsEl.textContent = "";
   modesEl.querySelectorAll(".modeBtn").forEach(b => b.classList.toggle("active", b.dataset.mode === chipMode));
   const mode = CHIP_MODES.find(m => m.id === chipMode) || CHIP_MODES[0];
@@ -1042,6 +1142,139 @@ function renderChips() {
 }
 renderChipModes();
 renderChips();
+
+let completionsActive = false;
+let completionContext = null;
+let cachedSoundCompletionNames = null;
+let imeComposing = false;
+let suppressCompletionUpdate = false;
+let completionsPausedUntilInput = false;
+
+function soundCompletionNames() {
+  const live = soundsLoaded ? listSounds() : null;
+  if (live && live.length) cachedSoundCompletionNames = live.map(sound => sound.name);
+  return uniqueSortedNames([
+    ...FALLBACK_SOUND_COMPLETION_NAMES,
+    ...SOUND_CHIPS.flatMap(([text]) => {
+      const quoted = [...String(text).matchAll(/"([^"]+)"/g)].flatMap(match => match[1].split(/\s+/));
+      return quoted.map(name => name.replace(/[,*[\]<>~]/g, "")).filter(Boolean);
+    }),
+    ...(cachedSoundCompletionNames || [])
+  ]);
+}
+
+function clearCompletions({ render = true } = {}) {
+  const wasActive = completionsActive;
+  completionsActive = false;
+  completionContext = null;
+  editrowEl.classList.remove("completing");
+  chipsEl.classList.remove("completing");
+  if (wasActive && render) renderChips();
+}
+
+function completionTokenAtCaret() {
+  if (document.activeElement !== ed || imeComposing) return null;
+  if (ed.selectionStart !== ed.selectionEnd) return null;
+  const caret = ed.selectionStart;
+  const text = ed.value;
+  const lineStart = text.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+  const lineEndRaw = text.indexOf("\n", caret);
+  const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
+  const line = text.slice(lineStart, lineEnd);
+  if (/^\s*\/\//.test(line)) return null;
+  const before = text.slice(lineStart, caret);
+  const match = before.match(/[A-Za-z][A-Za-z0-9_]*$/);
+  if (!match) return null;
+  const prefix = match[0];
+  const inString = isInString(caret);
+  if (prefix.length < (inString ? 1 : 2)) return null;
+  return {
+    start: caret - prefix.length,
+    end: caret,
+    prefix,
+    inString,
+    hasNextParen: text[caret] === "("
+  };
+}
+
+function rankedCompletionNames(prefix, names) {
+  const needle = prefix.toLowerCase();
+  const starts = [];
+  const contains = [];
+  uniqueSortedNames(names).forEach(name => {
+    const lower = name.toLowerCase();
+    if (lower === needle) return;
+    if (lower.startsWith(needle)) starts.push(name);
+    else if (lower.includes(needle)) contains.push(name);
+  });
+  const byUsefulness = (a, b) => (a.length - b.length) || a.localeCompare(b);
+  return [...starts.sort(byUsefulness), ...contains.sort(byUsefulness)].slice(0, 8);
+}
+
+function renderCompletions(candidates, context) {
+  completionsActive = true;
+  completionContext = context;
+  editrowEl.classList.add("completing");
+  chipsEl.classList.add("completing");
+  chipsEl.textContent = "";
+  candidates.forEach(name => {
+    const b = document.createElement("button");
+    b.className = "chip completion";
+    b.dataset.name = name;
+    b.textContent = context.inString ? name : name + (context.hasNextParen ? "" : "()");
+    bindTap(b, () => applyCompletion(name));
+    chipsEl.appendChild(b);
+  });
+}
+
+function updateCompletions() {
+  if (suppressCompletionUpdate) {
+    suppressCompletionUpdate = false;
+    clearCompletions();
+    return;
+  }
+  if (completionsPausedUntilInput) {
+    clearCompletions();
+    return;
+  }
+  const context = completionTokenAtCaret();
+  if (!context || !inputToolsVisible) {
+    clearCompletions();
+    return;
+  }
+  const names = context.inString ? soundCompletionNames() : FUNCTION_COMPLETION_NAMES;
+  const candidates = rankedCompletionNames(context.prefix, names);
+  if (!candidates.length) {
+    clearCompletions();
+    return;
+  }
+  renderCompletions(candidates, context);
+}
+
+function applyCompletion(name) {
+  const context = completionTokenAtCaret() || completionContext;
+  if (!context) return;
+  const current = ed.value.slice(context.start, context.end);
+  if (!current || current.toLowerCase() !== context.prefix.toLowerCase()) return;
+  let replacement = name;
+  let caret = context.start + replacement.length;
+  if (!context.inString) {
+    if (ed.value[context.end] === "(") {
+      caret = context.start + replacement.length + 1;
+    } else {
+      replacement += "()";
+      caret = context.start + replacement.length - 1;
+    }
+  }
+  ed.focus();
+  ed.setRangeText(replacement, context.start, context.end, "end");
+  ed.selectionStart = ed.selectionEnd = Math.min(ed.value.length, caret);
+  completionsPausedUntilInput = true;
+  suppressCompletionUpdate = true;
+  afterEdit();
+  updateScrubber();
+  clearCompletions();
+}
 
 const soundStatusEl = document.getElementById("soundStatus");
 const soundPaletteEl = document.getElementById("soundPalette");
@@ -1078,6 +1311,8 @@ async function loadSounds() {
       }
     }
     soundsLoaded = true;
+    cachedSoundCompletionNames = null;
+    updateCompletions();
     renderSoundStatus();
     if (failedSoundMaps.length) {
       showError("一部サウンド読込失敗: " + failedSoundMaps.map(f => f.name).join(", "));
@@ -1322,6 +1557,22 @@ function listSounds() {
   });
 }
 
+function isEscapedQuote(text, pos) {
+  let slashCount = 0;
+  for (let i = pos - 1; i >= 0 && text[i] === "\\"; i--) slashCount++;
+  return slashCount % 2 === 1;
+}
+
+function isInString(pos) {
+  const text = ed.value;
+  let quotes = 0;
+  const end = Math.max(0, Math.min(pos, text.length));
+  for (let i = 0; i < end; i++) {
+    if (text[i] === '"' && !isEscapedQuote(text, i)) quotes++;
+  }
+  return quotes % 2 === 1;
+}
+
 // 挿入位置が文字列リテラル内なら名前だけ、外なら s("名前") ごと挿入する。
 // 単語の途中に落とされたら近い側の境界へ寄せ、文字列内では前後の空白を補う
 function insertSoundAt(name, pos) {
@@ -1333,9 +1584,8 @@ function insertSoundAt(name, pos) {
     while (isWord(text[b])) b++;
     pos = (pos - a <= b - pos) ? a : b;
   }
-  const quotes = (text.slice(0, pos).match(/"/g) || []).length;
   let ins;
-  if (quotes % 2 === 1) {
+  if (isInString(pos)) {
     ins = name;
     const prev = text[pos - 1], next = text[pos];
     if (prev && !/[\s"([<{,]/.test(prev)) ins = " " + ins;
@@ -1798,7 +2048,7 @@ KEYS.forEach(([text, label, caret]) => {
   const b = document.createElement("button");
   b.className = "key";
   b.textContent = label;
-  bindInsert(b, text, caret);
+  bindKeyInsert(b, text, caret);
   keysEl.appendChild(b);
 });
 const commentKey = document.createElement("button");
@@ -2403,12 +2653,17 @@ function bindTap(btn, fn) {
 function bindInsert(btn, text, caret) {
   bindTap(btn, () => insertAtCursor(text, caret));
 }
+
+function bindKeyInsert(btn, text, caret) {
+  bindTap(btn, () => insertKeyAtCursor(text, caret));
+}
 bindTap(soundPasteBtn, pasteCopiedSound);
 bindTap(soundPasteClear, () => hideSoundPasteBar(true));
 bindTap(toolsToggle, () => {
   if (document.activeElement === ed) ed.blur();
   inputToolsVisible = !inputToolsVisible;
   applyInputToolsVisibility({ persist: true });
+  clearCompletions();
 });
 window.addEventListener("resize", () => {
   layoutDock();
@@ -2426,6 +2681,37 @@ function insertAtCursor(text, caret) {
   updateScrubber();
 }
 
+function insertKeyAtCursor(text, caret) {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const open = text && text[0];
+  const close = text && text[1];
+  if (text.length === 2 && caret === 1 && PAIRS[open] === close) {
+    ed.focus();
+    if (s !== e) {
+      wrapSelectionWithPair(open, close);
+      return;
+    }
+    if (ed.value[e] === close) {
+      ed.setRangeText(open, s, e, "end");
+      ed.selectionStart = ed.selectionEnd = s + 1;
+      afterEdit();
+      updateScrubber();
+      return;
+    }
+  }
+  insertAtCursor(text, caret);
+}
+
+function wrapSelectionWithPair(open, close) {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const selected = ed.value.slice(s, e);
+  ed.setRangeText(open + selected + close, s, e, "end");
+  ed.selectionStart = s + 1;
+  ed.selectionEnd = e + 1;
+  afterEdit();
+  updateScrubber();
+}
+
 function lineRangeForSelection() {
   const text = ed.value;
   const s = ed.selectionStart, e = ed.selectionEnd;
@@ -2436,6 +2722,23 @@ function lineRangeForSelection() {
   return { lineStart, lineEnd, hasSelection: e !== s };
 }
 
+function blockWillUncomment(block) {
+  const filled = block.split("\n").filter(line => line.trim());
+  return filled.length > 0 && filled.every(line => /^\s*\/\//.test(line));
+}
+
+function commentToggledBlock(block) {
+  const lines = block.split("\n");
+  const filled = lines.filter(line => line.trim());
+  if (!filled.length) return block;
+  const uncomment = blockWillUncomment(block);
+  return lines.map(line => {
+    if (!line.trim()) return line;
+    if (uncomment) return line.replace(/^(\s*)\/\//, "$1");
+    return line.replace(/^(\s*)/, "$1//");
+  }).join("\n");
+}
+
 function toggleLineComment() {
   ed.focus();
   const text = ed.value;
@@ -2443,15 +2746,9 @@ function toggleLineComment() {
   const { lineStart, lineEnd, hasSelection } = lineRangeForSelection();
   const block = text.slice(lineStart, lineEnd);
   if (!block) return;
-  const lines = block.split("\n");
-  const filled = lines.filter(line => line.trim());
-  const uncomment = filled.length > 0 && filled.every(line => /^\s*\/\//.test(line));
-  const newLines = lines.map(line => {
-    if (!line.trim()) return line;
-    if (uncomment) return line.replace(/^(\s*)\/\//, "$1");
-    return line.replace(/^(\s*)/, "$1//");
-  });
-  const newBlock = newLines.join("\n");
+  const uncomment = blockWillUncomment(block);
+  const newBlock = commentToggledBlock(block);
+  if (newBlock === block) return;
   ed.setRangeText(newBlock, lineStart, lineEnd, "select");
   if (hasSelection) {
     ed.selectionStart = lineStart;
@@ -2529,42 +2826,116 @@ function autoIndentNewline() {
   insertAtCursor("\n" + indent + extra, null);
 }
 
-function autoPairQuote() {
-  const s = ed.selectionStart, e = ed.selectionEnd;
-  const next = ed.value[e];
-  if (s !== e) {
-    const selected = ed.value.slice(s, e);
-    ed.setRangeText('"' + selected + '"', s, e, "end");
-    ed.selectionStart = s + 1;
-    ed.selectionEnd = e + 1;
-    afterEdit();
-    updateScrubber();
-    return;
-  }
-  if (next === '"') {
-    ed.selectionStart = ed.selectionEnd = e + 1;
-    updateScrubber();
-    return;
-  }
-  insertAtCursor('""', 1);
+function shouldPairOpenChar(ch, pos) {
+  if (ch === "<" && !isInString(pos)) return false;
+  const next = ed.value[pos];
+  return !next || /[\s")\]\>},.;:]/.test(next);
 }
 
+function handleOpenChar(ch) {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const close = PAIRS[ch];
+  if (!close) return false;
+  if (ch === "<" && !isInString(s)) return false;
+  if (s !== e) {
+    wrapSelectionWithPair(ch, close);
+    return true;
+  }
+  if (!shouldPairOpenChar(ch, e)) return false;
+  ed.setRangeText(ch + close, s, e, "end");
+  ed.selectionStart = ed.selectionEnd = s + 1;
+  afterEdit();
+  updateScrubber();
+  return true;
+}
+
+function handleCloseChar(ch) {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  if (s !== e || !CLOSE_PAIRS[ch] || ed.value[e] !== ch) return false;
+  ed.selectionStart = ed.selectionEnd = e + 1;
+  updateScrubber();
+  updateActiveLine();
+  return true;
+}
+
+function handleBackspacePair() {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  if (s !== e || s <= 0) return false;
+  const open = ed.value[s - 1];
+  const close = ed.value[s];
+  if (PAIRS[open] !== close) return false;
+  ed.setRangeText("", s - 1, s + 1, "end");
+  afterEdit();
+  updateScrubber();
+  return true;
+}
+
+function handleEditorInsertText(text) {
+  if (!text || text.length !== 1) return false;
+  if (handleCloseChar(text)) return true;
+  if (PAIRS[text]) return handleOpenChar(text);
+  return false;
+}
+
+let handledKeyBeforeInput = null;
+
+function suppressNextBeforeInput(inputType, data) {
+  const token = { inputType, data: data || "" };
+  handledKeyBeforeInput = token;
+  setTimeout(() => {
+    if (handledKeyBeforeInput === token) handledKeyBeforeInput = null;
+  }, 0);
+}
+
+ed.addEventListener("beforeinput", e => {
+  if (e.isComposing) return;
+  if (handledKeyBeforeInput &&
+      handledKeyBeforeInput.inputType === e.inputType &&
+      handledKeyBeforeInput.data === (e.data || "")) {
+    handledKeyBeforeInput = null;
+    e.preventDefault();
+    return;
+  }
+  if (e.inputType && /^(insert|delete)/.test(e.inputType)) {
+    completionsPausedUntilInput = false;
+  }
+  if (e.inputType === "insertText" && handleEditorInsertText(e.data || "")) {
+    e.preventDefault();
+    return;
+  }
+  if (e.inputType === "deleteContentBackward" && handleBackspacePair()) {
+    e.preventDefault();
+  }
+});
+
 ed.addEventListener("keydown", e => {
+  if (e.isComposing) return;
   if ((e.ctrlKey || e.metaKey) && e.key === "/") {
     e.preventDefault();
+    completionsPausedUntilInput = false;
     toggleLineComment();
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "Tab") {
     e.preventDefault();
+    completionsPausedUntilInput = false;
     indentSelection(e.shiftKey ? -1 : 1);
   } else if (e.key === "Enter") {
     e.preventDefault();
+    completionsPausedUntilInput = false;
     autoIndentNewline();
-  } else if (e.key === '"') {
+  } else if (e.key === "Backspace") {
+    completionsPausedUntilInput = false;
+    if (!handleBackspacePair()) return;
     e.preventDefault();
-    autoPairQuote();
+    suppressNextBeforeInput("deleteContentBackward", "");
+  } else if (e.key.length === 1) {
+    completionsPausedUntilInput = false;
+    if (handleEditorInsertText(e.key)) {
+      e.preventDefault();
+      suppressNextBeforeInput("insertText", e.key);
+    }
   }
 });
 
@@ -2617,6 +2988,22 @@ function setBackgroundPlay(enabled) {
   backgroundPlayToggle.checked = enabled;
   if (store) { try { store.setItem(BACKGROUND_PLAY_KEY, enabled ? "1" : "0"); } catch (e) {} }
   setStatus(enabled ? "バックグラウンド再生オン" : "非アクティブ時に停止", playing ? "playing" : "ready");
+}
+
+function setHighlightEnabled(enabled, { persist = true } = {}) {
+  highlightEnabled = !!enabled;
+  document.body.classList.toggle("hlOn", highlightEnabled);
+  highlightToggle.checked = highlightEnabled;
+  if (!highlightEnabled) {
+    hlInner.textContent = "";
+    renderedHighlightSignature = "";
+  } else {
+    renderedHighlightSignature = "";
+    renderHighlight();
+  }
+  if (persist && store) {
+    try { store.setItem(HIGHLIGHT_KEY, highlightEnabled ? "1" : "0"); } catch (e) {}
+  }
 }
 
 function formatCpmFromBpm(value) {
@@ -2673,6 +3060,7 @@ function syncBpmFromCode() {
 backgroundPlayToggle.checked = backgroundPlayEnabled;
 renderSegmentButtons(updateModeControls, updateMode);
 renderSegmentButtons(visualModeControls, visualMode);
+setHighlightEnabled(highlightEnabled, { persist: false });
 updateBpmControls(bpm);
 [...updateModeControls.querySelectorAll("button")].forEach(b => {
   bindTap(b, () => setUpdateMode(b.dataset.mode));
@@ -2681,6 +3069,7 @@ updateBpmControls(bpm);
   bindTap(b, () => setVisualMode(b.dataset.mode));
 });
 backgroundPlayToggle.addEventListener("change", () => setBackgroundPlay(backgroundPlayToggle.checked));
+highlightToggle.addEventListener("change", () => setHighlightEnabled(highlightToggle.checked));
 bpmSlider.addEventListener("input", () => {
   updateBpmControls(parseInt(bpmSlider.value, 10));
   applyBpmToCode();
@@ -2770,6 +3159,44 @@ function measureEditorLineMetrics(lines, guide) {
   return metrics;
 }
 
+function lineRangeForIndex(index) {
+  const text = ed.value;
+  let start = 0;
+  for (let i = 0; i < index; i++) {
+    const next = text.indexOf("\n", start);
+    if (next === -1) return { start: text.length, end: text.length };
+    start = next + 1;
+  }
+  const nextBreak = text.indexOf("\n", start);
+  return { start, end: nextBreak === -1 ? text.length : nextBreak };
+}
+
+function lineIndexFromClientY(y) {
+  if (!editorLineMetrics.length) updateLineNumbers();
+  const guide = currentEditorGuideStyle();
+  const rect = lineNums.getBoundingClientRect();
+  const contentY = y - rect.top + ed.scrollTop - guide.paddingTop;
+  if (contentY < 0) return null;
+  for (let i = 0; i < editorLineMetrics.length; i++) {
+    const metric = editorLineMetrics[i];
+    if (contentY >= metric.top && contentY < metric.top + metric.height) return i;
+  }
+  return null;
+}
+
+function toggleCommentForLine(index) {
+  if (index === null || index === undefined || index < 0) return false;
+  const { start, end } = lineRangeForIndex(index);
+  const block = ed.value.slice(start, end);
+  const newBlock = commentToggledBlock(block);
+  if (newBlock === block) return false;
+  // 行番号タップは単一行だけをミュートする。stack( や ) 行は構文エラーになり得るが、再タップで復帰できる。
+  ed.setRangeText(newBlock, start, end, "preserve");
+  afterEdit();
+  updateScrubber();
+  return true;
+}
+
 function updateLineNumbers() {
   const lines = editorLines();
   const guide = currentEditorGuideStyle();
@@ -2787,7 +3214,7 @@ function updateLineNumbers() {
     lines.forEach((line, i) => {
       const n = document.createElement("div");
       const metric = editorLineMetrics[i] || { height: guide.lineHeight };
-      n.className = "ln";
+      n.className = "ln" + (/^\s*\/\//.test(line) ? " muted" : "");
       n.textContent = String(i + 1);
       n.style.height = Math.max(guide.lineHeight, metric.height) + "px";
       n.style.lineHeight = guide.lineHeight + "px";
@@ -2799,6 +3226,43 @@ function updateLineNumbers() {
   }
   lineNumsInner.style.transform = "translateY(" + Math.round(-ed.scrollTop) + "px)";
 }
+
+let gutterPointer = null;
+
+lineNums.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  gutterPointer = {
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    scrollTop: ed.scrollTop,
+    moved: false
+  };
+  try { lineNums.setPointerCapture(e.pointerId); } catch (err) {}
+});
+
+lineNums.addEventListener("pointermove", e => {
+  if (!gutterPointer || e.pointerId !== gutterPointer.pointerId) return;
+  const dx = e.clientX - gutterPointer.startX;
+  const dy = e.clientY - gutterPointer.startY;
+  if (!gutterPointer.moved && Math.hypot(dx, dy) > 8) gutterPointer.moved = true;
+  if (gutterPointer.moved) {
+    e.preventDefault();
+    ed.scrollTop = Math.max(0, gutterPointer.scrollTop - dy);
+    updateEditorGuides();
+  }
+});
+
+lineNums.addEventListener("pointerup", e => {
+  if (!gutterPointer || e.pointerId !== gutterPointer.pointerId) return;
+  e.preventDefault();
+  const wasTap = !gutterPointer.moved;
+  gutterPointer = null;
+  if (wasTap) toggleCommentForLine(lineIndexFromClientY(e.clientY));
+});
+
+lineNums.addEventListener("pointercancel", () => { gutterPointer = null; });
+lineNums.addEventListener("contextmenu", e => e.preventDefault());
 
 function activeLineIndex() {
   return (ed.value.slice(0, ed.selectionStart).match(/\n/g) || []).length;
@@ -2849,7 +3313,155 @@ function updateActiveLine() {
   activeLine.style.top = Math.round(y) + "px";
 }
 
+function escapeHtml(text) {
+  return text.replace(/[&<>]/g, ch => ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : "&gt;");
+}
+
+function isIdentStart(ch) {
+  return !!ch && /[A-Za-z_$]/.test(ch);
+}
+
+function isIdentChar(ch) {
+  return !!ch && /[A-Za-z0-9_$]/.test(ch);
+}
+
+function tokenizeForHighlight(text) {
+  const tokens = [];
+  const excluded = new Array(text.length).fill(false);
+  let i = 0;
+  const markExcluded = (start, end) => {
+    for (let p = start; p < end; p++) excluded[p] = true;
+  };
+  while (i < text.length) {
+    if (text[i] === "/" && text[i + 1] === "/") {
+      const start = i;
+      i += 2;
+      while (i < text.length && text[i] !== "\n") i++;
+      markExcluded(start, i);
+      tokens.push({ start, end: i, cls: "tk-comment" });
+      continue;
+    }
+    if (text[i] === '"') {
+      const start = i++;
+      while (i < text.length) {
+        if (text[i] === '"' && !isEscapedQuote(text, i)) { i++; break; }
+        i++;
+      }
+      markExcluded(start, i);
+      tokens.push({ start, end: i, cls: "tk-string" });
+      continue;
+    }
+    const numberStart = /[0-9]/.test(text[i]) || (text[i] === "." && /[0-9]/.test(text[i + 1] || ""));
+    if (numberStart && !isIdentChar(text[i - 1])) {
+      const start = i++;
+      while (i < text.length && /[0-9.]/.test(text[i])) i++;
+      tokens.push({ start, end: i, cls: "tk-number" });
+      continue;
+    }
+    if (isIdentStart(text[i])) {
+      const start = i++;
+      while (i < text.length && isIdentChar(text[i])) i++;
+      if (text[i] === "(") tokens.push({ start, end: i, cls: "tk-fn" });
+      continue;
+    }
+    if ("()[]<>".includes(text[i])) {
+      tokens.push({ start: i, end: i + 1, cls: "tk-bracket" });
+    }
+    i++;
+  }
+  return { tokens, excluded };
+}
+
+function matchingBracketPositions(text, excluded) {
+  const openForClose = { ")": "(", "]": "[", ">": "<" };
+  const closeForOpen = { "(": ")", "[": "]", "<": ">" };
+  const caret = ed.selectionStart;
+  const candidates = [caret - 1, caret];
+  for (const pos of candidates) {
+    if (pos < 0 || pos >= text.length || excluded[pos]) continue;
+    const ch = text[pos];
+    if (closeForOpen[ch]) {
+      let depth = 0;
+      for (let i = pos; i < text.length; i++) {
+        if (excluded[i]) continue;
+        if (text[i] === ch) depth++;
+        else if (text[i] === closeForOpen[ch]) {
+          depth--;
+          if (depth === 0) return new Set([pos, i]);
+        }
+      }
+    } else if (openForClose[ch]) {
+      let depth = 0;
+      for (let i = pos; i >= 0; i--) {
+        if (excluded[i]) continue;
+        if (text[i] === ch) depth++;
+        else if (text[i] === openForClose[ch]) {
+          depth--;
+          if (depth === 0) return new Set([pos, i]);
+        }
+      }
+    }
+  }
+  return new Set();
+}
+
+function highlightedHtml(text, tokens, bracketMatches) {
+  let html = "";
+  let pos = 0;
+  tokens.forEach(token => {
+    if (token.start > pos) html += escapeHtml(text.slice(pos, token.start));
+    const raw = text.slice(token.start, token.end);
+    const cls = token.cls + (bracketMatches.has(token.start) ? " tk-bm" : "");
+    html += '<span class="' + cls + '">' + escapeHtml(raw) + "</span>";
+    pos = token.end;
+  });
+  if (pos < text.length) html += escapeHtml(text.slice(pos));
+  return html;
+}
+
+function renderHighlight() {
+  if (!highlightEnabled) {
+    hlInner.textContent = "";
+    renderedHighlightSignature = "";
+    return;
+  }
+  try {
+    const guide = currentEditorGuideStyle();
+    const signature = [
+      ed.value,
+      ed.selectionStart,
+      ed.selectionEnd,
+      guide.contentWidth,
+      guide.font,
+      guide.lineHeight,
+      guide.letterSpacing,
+      guide.tabSize
+    ].join("\u001f");
+    if (signature !== renderedHighlightSignature) {
+      hl.style.font = guide.font;
+      hl.style.fontSize = guide.fontSize + "px";
+      hl.style.lineHeight = guide.lineHeight + "px";
+      hl.style.letterSpacing = guide.letterSpacing;
+      hlInner.style.lineHeight = guide.lineHeight + "px";
+      hlInner.style.tabSize = guide.tabSize;
+      const { tokens, excluded } = tokenizeForHighlight(ed.value);
+      const bracketMatches = matchingBracketPositions(ed.value, excluded);
+      hlInner.innerHTML = highlightedHtml(ed.value, tokens, bracketMatches);
+      renderedHighlightSignature = signature;
+    }
+    hlInner.style.transform = "translateY(" + Math.round(-ed.scrollTop) + "px)";
+  } catch (e) {
+    console.warn("highlight disabled", e);
+    highlightEnabled = false;
+    document.body.classList.remove("hlOn");
+    highlightToggle.checked = false;
+    hlInner.textContent = "";
+    renderedHighlightSignature = "";
+  }
+}
+
 function updateEditorGuides() {
+  renderHighlight();
   updateLineNumbers();
   updateActiveLine();
 }
@@ -2861,6 +3473,7 @@ let saveTimer = null, evalTimer = null;
 function afterEdit() {
   syncBpmFromCode();
   updateEditorGuides();
+  updateCompletions();
   if (store) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -2878,7 +3491,10 @@ function afterEdit() {
     }
   }
 }
-ed.addEventListener("input", afterEdit);
+ed.addEventListener("input", () => {
+  completionsPausedUntilInput = false;
+  afterEdit();
+});
 
 /* ─────────────────────────────────────
    編集履歴(スマホではOSキーボードのundoが使いにくいため独自に持つ)
@@ -2909,7 +3525,10 @@ function applyHistory(d) {
   histIdx = i;
   applyingHist = true;
   ed.value = hist[i];
+  completionsPausedUntilInput = true;
+  suppressCompletionUpdate = true;
   afterEdit();
+  clearCompletions();
   applyingHist = false;
   updateHistBtns();
 }
@@ -3051,13 +3670,22 @@ document.getElementById("stepPlus").addEventListener("pointerdown", e => {
 document.addEventListener("selectionchange", () => {
   if (document.activeElement === ed) {
     updateScrubber();
-    updateActiveLine();
+    updateEditorGuides();
+    updateCompletions();
   }
 });
-ed.addEventListener("pointerup", () => { updateScrubber(); updateActiveLine(); });
-ed.addEventListener("keyup", () => { updateScrubber(); updateActiveLine(); });
+ed.addEventListener("pointerup", () => { updateScrubber(); updateEditorGuides(); updateCompletions(); });
+ed.addEventListener("keyup", () => { updateScrubber(); updateEditorGuides(); updateCompletions(); });
 ed.addEventListener("scroll", () => {
   updateEditorGuides();
+});
+ed.addEventListener("compositionstart", () => {
+  imeComposing = true;
+  clearCompletions();
+});
+ed.addEventListener("compositionend", () => {
+  imeComposing = false;
+  updateCompletions();
 });
 ed.addEventListener("blur", () => {
   updateActiveLine();
