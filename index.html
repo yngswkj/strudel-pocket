@@ -472,7 +472,7 @@
     background:var(--surface2);border:1px solid var(--line);border-radius:10px;
     padding:8px;min-width:0;
   }
-  .snapMeta{min-width:0}
+  .snapMeta{min-width:0;touch-action:manipulation;user-select:none}
   .snapName{font-family:var(--mono);font-size:13px;font-weight:700}
   .snapInfo{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .snapSave,.snapLoad{
@@ -487,6 +487,11 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
     font:14px var(--mono);
   }
+  .songSaveContext{
+    margin:-2px 4px 8px;font-size:12px;color:var(--muted);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .songSaveContext.active{color:var(--cool)}
   #songButtons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
   #songSave,#songSaveAs{
     height:40px;border-radius:10px;font-size:13px;font-weight:700;
@@ -494,6 +499,20 @@
   }
   #songSave{background:var(--cool);color:#062a25;border-color:transparent}
   #songSaveAs{background:var(--surface2);color:var(--text)}
+  #songOverwriteConfirm{
+    display:grid;gap:8px;margin:-2px 2px 10px;padding:10px;
+    background:rgba(255,190,76,.08);border:1px solid rgba(255,190,76,.32);
+    border-radius:10px;
+  }
+  #songOverwriteConfirm[hidden]{display:none}
+  #songOverwriteText{font-size:12px;color:var(--text);line-height:1.45}
+  #songOverwriteDetail{font-size:11px;color:var(--muted);line-height:1.35}
+  #songOverwriteActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #songOverwriteCancel,#songOverwriteApply{
+    height:34px;border-radius:8px;font-size:12px;font-weight:700;
+    background:var(--surface);border:1px solid var(--line);color:var(--text);
+  }
+  #songOverwriteApply{background:var(--warn);border-color:transparent;color:#2e1117}
   #songUtilityButtons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
   #songExport,#songImport,#songShare{
     height:36px;border-radius:10px;font-size:12px;
@@ -518,6 +537,22 @@
   .songEmpty{
     padding:9px 10px;border-radius:10px;border:1px dashed var(--line);
     color:var(--muted);font-size:12px;
+  }
+  #snapPreview{
+    position:fixed;z-index:80;display:grid;gap:6px;
+    max-width:calc(100vw - 24px);max-height:min(52vh,360px);
+    padding:10px;border-radius:10px;background:var(--surface);
+    border:1px solid var(--cool);box-shadow:0 16px 38px rgba(0,0,0,.48);
+  }
+  #snapPreview[hidden]{display:none}
+  #snapPreviewHead{
+    font-size:12px;font-weight:700;color:var(--cool);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  #snapPreviewCode{
+    margin:0;max-height:calc(min(52vh,360px) - 42px);overflow:auto;
+    white-space:pre-wrap;overflow-wrap:break-word;
+    font:11px/1.5 var(--mono);color:var(--text);
   }
   .card{
     background:var(--surface2);border:1px solid var(--line);border-radius:14px;
@@ -622,9 +657,18 @@
         <h2>曲</h2>
         <div id="songPanel">
           <input id="songTitle" type="text" maxlength="60" placeholder="曲名">
+          <div id="songSaveContext" class="songSaveContext"></div>
           <div id="songButtons">
             <button id="songSave">保存</button>
             <button id="songSaveAs">別名保存</button>
+          </div>
+          <div id="songOverwriteConfirm" hidden>
+            <div id="songOverwriteText"></div>
+            <div id="songOverwriteDetail"></div>
+            <div id="songOverwriteActions">
+              <button id="songOverwriteCancel">キャンセル</button>
+              <button id="songOverwriteApply">上書き保存</button>
+            </div>
           </div>
           <div id="songUtilityButtons">
             <button id="songExport">書出</button>
@@ -691,6 +735,10 @@
   <span id="soundPasteText"></span>
   <button id="soundPasteBtn">貼付</button>
   <button id="soundPasteClear" aria-label="コピーしたサウンドを閉じる">×</button>
+</div>
+<div id="snapPreview" hidden>
+  <div id="snapPreviewHead"></div>
+  <pre id="snapPreviewCode"></pre>
 </div>
 
 <script>
@@ -1762,20 +1810,76 @@ keysEl.appendChild(commentKey);
 
 const SNAP_IDS = ["A", "B", "C", "D"];
 const snapSlotsEl = document.getElementById("snapSlots");
+const snapPreviewEl = document.getElementById("snapPreview");
+const snapPreviewHeadEl = document.getElementById("snapPreviewHead");
+const snapPreviewCodeEl = document.getElementById("snapPreviewCode");
 let snaps = {};
 if (store) {
   try { snaps = JSON.parse(store.getItem(SNAP_KEY) || "{}") || {}; } catch (e) { snaps = {}; }
 }
 
+function snapLineCount(code) {
+  return String(code || "").split(/\n/).length;
+}
+
 function snapInfo(snap) {
   if (!snap || !snap.code) return "空";
-  const lines = snap.code.split(/\n/).length;
-  return lines + "行";
+  return snapLineCount(snap.code) + "行";
 }
 
 function persistSnaps() {
   if (!store) return;
   try { store.setItem(SNAP_KEY, JSON.stringify(snaps)); } catch (e) {}
+}
+
+function hideSnapPreview() {
+  snapPreviewEl.hidden = true;
+}
+
+function placeSnapPreview(anchor) {
+  const margin = 12;
+  const width = Math.min(window.innerWidth - margin * 2, 520);
+  const rect = anchor.getBoundingClientRect();
+  snapPreviewEl.style.width = width + "px";
+  snapPreviewEl.style.left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin)) + "px";
+  snapPreviewEl.style.right = "auto";
+  snapPreviewEl.style.top = "0px";
+  const height = Math.min(snapPreviewEl.offsetHeight || 260, window.innerHeight - margin * 2);
+  let top = rect.top - height - 8;
+  if (top < margin) top = Math.min(rect.bottom + 8, window.innerHeight - height - margin);
+  snapPreviewEl.style.top = Math.max(margin, top) + "px";
+}
+
+function showSnapPreview(id, anchor) {
+  const snap = snaps[id];
+  if (!snap || !snap.code) return;
+  snapPreviewHeadEl.textContent = id + " / " + snapLineCount(snap.code) + "行";
+  snapPreviewCodeEl.textContent = snap.code;
+  snapPreviewEl.hidden = false;
+  placeSnapPreview(anchor);
+}
+
+function bindSnapPreview(meta, id) {
+  let timer = null;
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  meta.addEventListener("pointerdown", e => {
+    if (!(snaps[id] && snaps[id].code)) return;
+    clear();
+    timer = setTimeout(() => {
+      timer = null;
+      showSnapPreview(id, meta);
+    }, 420);
+  });
+  meta.addEventListener("contextmenu", e => e.preventDefault());
+  ["pointerup", "pointercancel", "pointerleave"].forEach(type => {
+    meta.addEventListener(type, () => {
+      clear();
+      hideSnapPreview();
+    });
+  });
 }
 
 function renderSnaps() {
@@ -1787,6 +1891,8 @@ function renderSnaps() {
       '<button class="snapSave">保存</button><button class="snapLoad">読込</button>';
     slot.querySelector(".snapName").textContent = id;
     slot.querySelector(".snapInfo").textContent = snapInfo(snaps[id]);
+    const meta = slot.querySelector(".snapMeta");
+    bindSnapPreview(meta, id);
     const loadBtn = slot.querySelector(".snapLoad");
     loadBtn.disabled = !(snaps[id] && snaps[id].code);
     slot.querySelector(".snapSave").addEventListener("click", () => saveSnap(id));
@@ -1799,6 +1905,7 @@ function saveSnap(id) {
   if (!ed.value.trim()) { setStatus(id + "は空のため保存なし", "ready"); return; }
   snaps[id] = { code: ed.value, at: Date.now() };
   persistSnaps();
+  hideSnapPreview();
   renderSnaps();
   setStatus(id + "に保存", playing ? "playing" : "ready");
 }
@@ -1806,6 +1913,7 @@ function saveSnap(id) {
 function loadSnap(id) {
   const snap = snaps[id];
   if (!snap || !snap.code) { setStatus(id + "は空", playing ? "playing" : "ready"); return; }
+  hideSnapPreview();
   ed.value = snap.code;
   afterEdit();
   updateScrubber();
@@ -1813,11 +1921,22 @@ function loadSnap(id) {
   ed.focus();
   setStatus(id + "を読み込み", playing ? "playing" : "ready");
 }
+document.addEventListener("pointerdown", e => {
+  if (snapPreviewEl.hidden) return;
+  if (snapPreviewEl.contains(e.target) || e.target.closest(".snapMeta")) return;
+  hideSnapPreview();
+});
 renderSnaps();
 
 const songTitleInput = document.getElementById("songTitle");
+const songSaveContextEl = document.getElementById("songSaveContext");
 const songSaveBtn = document.getElementById("songSave");
 const songSaveAsBtn = document.getElementById("songSaveAs");
+const songOverwriteConfirmEl = document.getElementById("songOverwriteConfirm");
+const songOverwriteTextEl = document.getElementById("songOverwriteText");
+const songOverwriteDetailEl = document.getElementById("songOverwriteDetail");
+const songOverwriteCancelBtn = document.getElementById("songOverwriteCancel");
+const songOverwriteApplyBtn = document.getElementById("songOverwriteApply");
 const songExportBtn = document.getElementById("songExport");
 const songImportBtn = document.getElementById("songImport");
 const songShareBtn = document.getElementById("songShare");
@@ -1826,6 +1945,7 @@ const songListEl = document.getElementById("songList");
 let currentSongId = "";
 let songLibrary = [];
 let pocketDbPromise = null;
+let pendingOverwriteSong = null;
 if (store) {
   try { currentSongId = store.getItem(CURRENT_SONG_KEY) || ""; } catch (e) {}
 }
@@ -1970,6 +2090,53 @@ function currentSongDraft() {
   };
 }
 
+function songSaveTitle() {
+  return (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60) || "Untitled";
+}
+
+function currentSongRecord() {
+  return songLibrary.find(song => song && song.id === currentSongId) || null;
+}
+
+function hideOverwriteConfirm() {
+  pendingOverwriteSong = null;
+  songOverwriteConfirmEl.hidden = true;
+}
+
+function renderOverwriteConfirm() {
+  if (!pendingOverwriteSong) {
+    songOverwriteConfirmEl.hidden = true;
+    return;
+  }
+  const target = pendingOverwriteSong.title || "Untitled";
+  const nextTitle = songSaveTitle();
+  songOverwriteTextEl.textContent = "「" + target + "」を上書き保存しますか？";
+  const changedTitle = nextTitle && nextTitle !== target;
+  songOverwriteDetailEl.hidden = !changedTitle;
+  songOverwriteDetailEl.textContent = changedTitle ? "保存後: " + nextTitle : "";
+  songOverwriteConfirmEl.hidden = false;
+}
+
+function showOverwriteConfirm(song) {
+  pendingOverwriteSong = {
+    id: song.id,
+    title: song.title || "Untitled"
+  };
+  renderOverwriteConfirm();
+}
+
+function renderSongSaveState() {
+  const current = currentSongRecord();
+  songSaveBtn.textContent = current ? "上書き保存" : "新規保存";
+  songSaveContextEl.classList.toggle("active", !!current);
+  const text = current ? "編集中: " + (current.title || "Untitled") : "新規曲";
+  songSaveContextEl.textContent = text;
+  songSaveContextEl.title = text;
+  if (pendingOverwriteSong && (!current || pendingOverwriteSong.id !== current.id)) {
+    hideOverwriteConfirm();
+  }
+}
+
 function setCurrentSong(id) {
   currentSongId = id || "";
   if (store) {
@@ -1979,6 +2146,7 @@ function setCurrentSong(id) {
     } catch (e) {}
   }
   renderSongList();
+  renderSongSaveState();
 }
 
 function renderSongList(message) {
@@ -1988,6 +2156,7 @@ function renderSongList(message) {
     empty.className = "songEmpty";
     empty.textContent = message;
     songListEl.appendChild(empty);
+    renderSongSaveState();
     return;
   }
   if (!songLibrary.length) {
@@ -1995,6 +2164,7 @@ function renderSongList(message) {
     empty.className = "songEmpty";
     empty.textContent = "保存した曲はまだありません";
     songListEl.appendChild(empty);
+    renderSongSaveState();
     return;
   }
   songLibrary.forEach(song => {
@@ -2010,6 +2180,7 @@ function renderSongList(message) {
     bindTap(row.querySelector(".songDelete"), () => removeSong(song));
     songListEl.appendChild(row);
   });
+  renderSongSaveState();
 }
 
 async function refreshSongList() {
@@ -2028,13 +2199,18 @@ async function refreshSongList() {
   }
 }
 
-async function saveCurrentSong(asNew) {
+async function saveCurrentSong(asNew, confirmedOverwrite = false) {
   if (!ed.value.trim()) { setStatus("空の曲は保存しません", playing ? "playing" : "ready"); return; }
   try {
     const existing = (!asNew && currentSongId) ? await getSong(currentSongId).catch(() => null) : null;
+    if (existing && (!confirmedOverwrite || !pendingOverwriteSong || pendingOverwriteSong.id !== existing.id)) {
+      showOverwriteConfirm(existing);
+      setStatus("上書き確認待ち", playing ? "playing" : "ready");
+      return;
+    }
     const song = {
       id: existing ? existing.id : makeSongId(),
-      title: (songTitleInput.value.trim() || songTitleFromCode()).slice(0, 60),
+      title: songSaveTitle(),
       code: ed.value,
       theme: document.documentElement.dataset.theme || "",
       snapshots: cloneSnaps(),
@@ -2044,8 +2220,9 @@ async function saveCurrentSong(asNew) {
     await putSong(song);
     songTitleInput.value = song.title;
     setCurrentSong(song.id);
+    hideOverwriteConfirm();
     await refreshSongList();
-    setStatus("曲を保存", playing ? "playing" : "ready");
+    setStatus(existing ? "曲を上書き保存" : "曲を保存", playing ? "playing" : "ready");
   } catch (e) {
     setStatus("曲保存失敗", playing ? "playing" : "error");
     showError(String(e && e.message ? e.message : e));
@@ -2054,6 +2231,7 @@ async function saveCurrentSong(asNew) {
 
 async function loadSong(song) {
   if (!song || !song.id) return;
+  hideOverwriteConfirm();
   setCurrentSong(song.id);
   songTitleInput.value = song.title || "";
   ed.value = song.code || "";
@@ -2074,6 +2252,7 @@ async function removeSong(song) {
   try {
     await deleteSong(song.id);
     if (song.id === currentSongId) setCurrentSong("");
+    if (pendingOverwriteSong && pendingOverwriteSong.id === song.id) hideOverwriteConfirm();
     await refreshSongList();
     setStatus("曲を削除", playing ? "playing" : "ready");
   } catch (e) {
@@ -2153,7 +2332,16 @@ function readSharedSong() {
 }
 
 bindTap(songSaveBtn, () => saveCurrentSong(false));
-bindTap(songSaveAsBtn, () => saveCurrentSong(true));
+bindTap(songSaveAsBtn, () => {
+  hideOverwriteConfirm();
+  saveCurrentSong(true);
+});
+bindTap(songOverwriteCancelBtn, () => {
+  hideOverwriteConfirm();
+  setStatus("上書きをキャンセル", playing ? "playing" : "ready");
+});
+bindTap(songOverwriteApplyBtn, () => saveCurrentSong(false, true));
+songTitleInput.addEventListener("input", renderOverwriteConfirm);
 bindTap(songExportBtn, exportSongs);
 bindTap(songImportBtn, () => songImportFile.click());
 bindTap(songShareBtn, shareCurrentSong);
@@ -3499,7 +3687,10 @@ function openDrawer() {
   drawer.classList.add("show");
   refreshSampleCacheStatus(); // 開いた時点のキャッシュ状態に更新(古い件数を出しっぱなしにしない)
 }
-function closeDrawer() { drawer.classList.remove("show"); }
+function closeDrawer() {
+  hideSnapPreview();
+  drawer.classList.remove("show");
+}
 document.getElementById("openDrawer").addEventListener("click", openDrawer);
 document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
 drawer.addEventListener("click", e => { if (e.target === drawer) closeDrawer(); });
