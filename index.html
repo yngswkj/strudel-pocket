@@ -840,6 +840,7 @@ let backgroundPlayEnabled = false;
 let inputToolsVisible = true;
 let highlightEnabled = true;
 let renderedHighlightSignature = "";
+let renderedHighlightText = "";
 let bpm = 120;
 
 /* ─────────────────────────────────────
@@ -1565,12 +1566,21 @@ function isEscapedQuote(text, pos) {
 
 function isInString(pos) {
   const text = ed.value;
-  let quotes = 0;
   const end = Math.max(0, Math.min(pos, text.length));
+  let inString = false;
   for (let i = 0; i < end; i++) {
-    if (text[i] === '"' && !isEscapedQuote(text, i)) quotes++;
+    if (inString) {
+      if (text[i] === '"' && !isEscapedQuote(text, i)) inString = false;
+      continue;
+    }
+    if (text[i] === "/" && text[i + 1] === "/") {
+      i += 2;
+      while (i < end && text[i] !== "\n") i++;
+      continue;
+    }
+    if (text[i] === '"' && !isEscapedQuote(text, i)) inString = true;
   }
-  return quotes % 2 === 1;
+  return inString;
 }
 
 // 挿入位置が文字列リテラル内なら名前だけ、外なら s("名前") ごと挿入する。
@@ -2997,8 +3007,10 @@ function setHighlightEnabled(enabled, { persist = true } = {}) {
   if (!highlightEnabled) {
     hlInner.textContent = "";
     renderedHighlightSignature = "";
+    renderedHighlightText = "";
   } else {
     renderedHighlightSignature = "";
+    renderedHighlightText = "";
     renderHighlight();
   }
   if (persist && store) {
@@ -3423,12 +3435,13 @@ function renderHighlight() {
   if (!highlightEnabled) {
     hlInner.textContent = "";
     renderedHighlightSignature = "";
+    renderedHighlightText = "";
     return;
   }
   try {
     const guide = currentEditorGuideStyle();
+    const text = ed.value;
     const signature = [
-      ed.value,
       ed.selectionStart,
       ed.selectionEnd,
       guide.contentWidth,
@@ -3437,17 +3450,18 @@ function renderHighlight() {
       guide.letterSpacing,
       guide.tabSize
     ].join("\u001f");
-    if (signature !== renderedHighlightSignature) {
+    if (text !== renderedHighlightText || signature !== renderedHighlightSignature) {
       hl.style.font = guide.font;
       hl.style.fontSize = guide.fontSize + "px";
       hl.style.lineHeight = guide.lineHeight + "px";
       hl.style.letterSpacing = guide.letterSpacing;
       hlInner.style.lineHeight = guide.lineHeight + "px";
       hlInner.style.tabSize = guide.tabSize;
-      const { tokens, excluded } = tokenizeForHighlight(ed.value);
-      const bracketMatches = matchingBracketPositions(ed.value, excluded);
-      hlInner.innerHTML = highlightedHtml(ed.value, tokens, bracketMatches);
+      const { tokens, excluded } = tokenizeForHighlight(text);
+      const bracketMatches = matchingBracketPositions(text, excluded);
+      hlInner.innerHTML = highlightedHtml(text, tokens, bracketMatches);
       renderedHighlightSignature = signature;
+      renderedHighlightText = text;
     }
     hlInner.style.transform = "translateY(" + Math.round(-ed.scrollTop) + "px)";
   } catch (e) {
@@ -3457,6 +3471,7 @@ function renderHighlight() {
     highlightToggle.checked = false;
     hlInner.textContent = "";
     renderedHighlightSignature = "";
+    renderedHighlightText = "";
   }
 }
 
