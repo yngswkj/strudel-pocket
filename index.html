@@ -1861,23 +1861,33 @@ function showSnapPreview(id, anchor) {
 
 function bindSnapPreview(meta, id) {
   let timer = null;
+  let pointerId = null;
   const clear = () => {
     if (timer) clearTimeout(timer);
     timer = null;
   };
+  const finish = () => {
+    clear();
+    if (pointerId !== null) {
+      try { meta.releasePointerCapture(pointerId); } catch (e) {}
+      pointerId = null;
+    }
+    hideSnapPreview();
+  };
   meta.addEventListener("pointerdown", e => {
     if (!(snaps[id] && snaps[id].code)) return;
     clear();
+    pointerId = e.pointerId;
+    try { meta.setPointerCapture(pointerId); } catch (err) {}
     timer = setTimeout(() => {
       timer = null;
       showSnapPreview(id, meta);
     }, 420);
   });
   meta.addEventListener("contextmenu", e => e.preventDefault());
-  ["pointerup", "pointercancel", "pointerleave"].forEach(type => {
+  ["pointerup", "pointercancel"].forEach(type => {
     meta.addEventListener(type, () => {
-      clear();
-      hideSnapPreview();
+      finish();
     });
   });
 }
