@@ -381,7 +381,7 @@
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
   .themeBtn.active{border-color:var(--cool);color:var(--cool)}
-  #playSettings{display:grid;gap:10px;margin:0 2px 18px}
+  #playSettings,#visualSettings{display:grid;gap:10px;margin:0 2px 18px}
   .settingToggle{
     display:flex;align-items:center;gap:10px;min-height:42px;
     padding:0 12px;border-radius:10px;
@@ -557,11 +557,12 @@
     background:var(--surface);border:1px solid var(--line);color:var(--text);
   }
   #songOverwriteApply{background:var(--warn);border-color:transparent;color:#2e1117}
-  #songUtilityButtons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
-  #songExport,#songImport,#songShare{
+  #songUtilityButtons{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+  #songNew,#songExport,#songImport,#songShare{
     height:36px;border-radius:10px;font-size:12px;
     background:var(--surface2);border:1px solid var(--line);color:var(--text);
   }
+  #songNew{color:var(--cool)}
   #songImportFile{display:none}
   #songList{display:grid;gap:8px}
   .songRow{
@@ -621,6 +622,20 @@
   .danger{
     width:100%;height:42px;border-radius:10px;font-size:13px;margin-top:4px;
     background:transparent;border:1px solid rgba(255,84,112,.5);color:var(--warn);
+  }
+  #editorActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}
+  #commentAllBtn{
+    height:42px;border-radius:10px;font-size:13px;
+    background:var(--surface2);border:1px solid var(--line);color:var(--text);
+  }
+  #editorActions .danger{margin-top:0}
+  @media (min-width:720px){
+    #sheetTabs,.dsec.show{max-width:680px;margin-left:auto;margin-right:auto}
+    #themes,#playSettings,#visualSettings{max-width:520px}
+    #themes{justify-content:flex-start}
+    .themeBtn{flex:0 0 150px}
+    .settingSegment{width:max-content;max-width:100%;grid-template-columns:repeat(3,112px)}
+    .settingToggle,.settingRange{max-width:430px}
   }
   /* 小型スマホではスナップを1列に落として押しやすくする */
   @media (max-width:360px){
@@ -694,7 +709,10 @@
     <div id="sheetBody">
       <section class="dsec" data-sec="patterns">
         <div id="cards"></div>
-        <button class="danger" id="clearBtn">エディタを空にする</button>
+        <div id="editorActions">
+          <button id="commentAllBtn">全コメント</button>
+          <button class="danger" id="clearBtn">新規作成</button>
+        </div>
       </section>
       <section class="dsec" data-sec="songs">
         <h2>スナップ</h2>
@@ -716,6 +734,7 @@
             </div>
           </div>
           <div id="songUtilityButtons">
+            <button id="songNew">新規</button>
             <button id="songExport">書出</button>
             <button id="songImport">読込</button>
             <button id="songShare">リンク</button>
@@ -951,7 +970,7 @@ const CHIP_MODES = [
       ['s("")',                 's("…")',        3],
       ['note("")',              'note',          6],
       ['n("")',                 'n',             3],
-      ['$:  ',                  '$:',            4],
+      ['$: ',                   '$:',            3],
       ['setcpm(30)',            'setcpm',        7],
       ['stack(\n  \n)',         'stack',         9],
       ['.gain(0.8)',            '.gain',         6],
@@ -1020,6 +1039,7 @@ const KEYS = [
   ['/',  '/',   null],
   ['.',  '.',   null],
   [',',  ',',   null],
+  ['-',  '-',   null],
   ['""', '"',   1],
   ['!',  '!',   null],
   ['#',  '#',   null],
@@ -1059,22 +1079,27 @@ const SOUND_CHIPS = [
 ];
 const STRUDEL_COMPLETION_NAMES = [
   "add", "adsr", "almostAlways", "almostNever", "anchor", "attack", "bank", "begin", "binary", "brak",
-  "brake", "brutal", "cat", "cc", "channel", "chord", "clip", "compressor", "contrast", "crush",
-  "cut", "decay", "degrade", "degradeBy", "delay", "delayfeedback", "delaytime", "detune", "distort", "divisor",
-  "echo", "end", "euclid", "euclidLegato", "euclidRot", "every", "fast", "fastcat", "fit", "fix",
-  "fm", "fmi", "gain", "gap", "group", "hpf", "hpq", "hurry", "inside", "invert",
-  "iter", "jux", "late", "legato", "linger", "loopAt", "lpf", "lpenv", "lpq", "mask",
-  "n", "never", "note", "off", "orbit", "pace", "pan", "panspan", "penv", "pianoroll",
-  "ply", "postgain", "rarely", "release", "repr", "restart", "rev", "room", "roomsize", "s",
-  "scale", "segment", "setcps", "setcpm", "shape", "slow", "slowcat", "sometimes", "sound", "speed",
-  "splice", "split", "spectrum", "stack", "struct", "striate", "stretch", "strum", "strumtime", "superimpose",
-  "sustain", "swing", "swingBy", "take", "transpose", "triode", "tscope", "velocity", "vib", "vowel",
-  "when", "with", "within", "x", "zoom"
+  "brake", "brutal", "cat", "cc", "channel", "choose", "chooseCycles", "chord", "chop", "clip",
+  "coarse", "compressor", "contrast", "cpm", "cps", "crush", "cut", "decay", "degrade", "degradeBy",
+  "delay", "delayfeedback", "delaytime", "density", "detune", "distort", "divisor", "dry", "echo", "end",
+  "euclid", "euclidFull", "euclidLegato", "euclidOff", "euclidRot", "every", "fast", "fastcat", "fit", "fix",
+  "fm", "fmi", "gain", "gainBy", "gap", "group", "hpf", "hpq", "hurry", "inside",
+  "invert", "irand", "iter", "jux", "late", "legato", "linger", "loop", "loopAt", "lpf",
+  "lpenv", "lpq", "mask", "midi", "mul", "n", "never", "note", "off", "orbit",
+  "pace", "pan", "panspan", "penv", "pick", "pianoroll", "ply", "postgain", "press", "rand",
+  "range", "rarely", "release", "repeatCycles", "repr", "restart", "rev", "room", "roomfade", "roomlp",
+  "roomsize", "s", "scale", "segment", "seq", "sequence", "setcps", "setcpm", "shape", "slice",
+  "slow", "slowcat", "sometimes", "sound", "soundfont", "speed", "splice", "split", "spectrum", "stack",
+  "step", "struct", "striate", "stretch", "strum", "strumtime", "stut", "superimpose", "sustain", "swing",
+  "swingBy", "take", "time", "transpose", "triode", "tscope", "velocity", "vib", "voicing", "vowel",
+  "when", "with", "within", "x", "zrand", "zoom"
 ];
 const FALLBACK_SOUND_COMPLETION_NAMES = [
   "bd", "sd", "hh", "oh", "cp", "rim", "clap", "kick", "snare", "hat", "crash", "ride",
-  "808bd", "808sd", "909bd", "909sd", "piano", "sawtooth", "triangle", "square", "sine",
-  "gm_acoustic_grand_piano", "gm_bright_acoustic_piano", "mridangam_ta", "wt_digital"
+  "808bd", "808sd", "909bd", "909sd", "bass", "pluck", "piano", "organ", "guitar", "strings",
+  "sawtooth", "triangle", "square", "sine", "supersaw", "gm_acoustic_grand_piano",
+  "gm_bright_acoustic_piano", "gm_electric_piano_1", "gm_drawbar_organ", "gm_violin",
+  "gm_string_ensemble_1", "mridangam_ta", "mridangam_thom", "wt_digital", "wt_glass"
 ];
 
 function uniqueSortedNames(names) {
@@ -2061,12 +2086,6 @@ KEYS.forEach(([text, label, caret]) => {
   bindKeyInsert(b, text, caret);
   keysEl.appendChild(b);
 });
-const commentKey = document.createElement("button");
-commentKey.className = "key";
-commentKey.textContent = "//";
-commentKey.setAttribute("aria-label", "行をコメントアウト");
-bindTap(commentKey, toggleLineComment);
-keysEl.appendChild(commentKey);
 
 const SNAP_IDS = ["A", "B", "C", "D"];
 const snapSlotsEl = document.getElementById("snapSlots");
@@ -2207,6 +2226,7 @@ const songOverwriteTextEl = document.getElementById("songOverwriteText");
 const songOverwriteDetailEl = document.getElementById("songOverwriteDetail");
 const songOverwriteCancelBtn = document.getElementById("songOverwriteCancel");
 const songOverwriteApplyBtn = document.getElementById("songOverwriteApply");
+const songNewBtn = document.getElementById("songNew");
 const songExportBtn = document.getElementById("songExport");
 const songImportBtn = document.getElementById("songImport");
 const songShareBtn = document.getElementById("songShare");
@@ -2591,6 +2611,28 @@ async function shareCurrentSong() {
   }
 }
 
+function startNewSong() {
+  if (ed.value.trim() && !confirm("エディタを空にして新規作成しますか？")) return;
+  flushHistory();
+  hideOverwriteConfirm();
+  setCurrentSong("");
+  songTitleInput.value = "";
+  snaps = {};
+  persistSnaps();
+  renderSnaps();
+  hideSnapPreview();
+  ed.value = "";
+  ed.selectionStart = ed.selectionEnd = 0;
+  if (store) {
+    try { store.setItem(SAVE_KEY, ""); } catch (e) {}
+  }
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  afterEdit();
+  updateScrubber();
+  closeDrawer();
+  setStatus("新規作成", playing ? "playing" : "ready");
+}
+
 function readSharedSong() {
   if (!location.hash.startsWith("#song=")) return null;
   try {
@@ -2612,6 +2654,7 @@ bindTap(songOverwriteCancelBtn, () => {
 });
 bindTap(songOverwriteApplyBtn, () => saveCurrentSong(false, true));
 songTitleInput.addEventListener("input", renderOverwriteConfirm);
+bindTap(songNewBtn, startNewSong);
 bindTap(songExportBtn, exportSongs);
 bindTap(songImportBtn, () => songImportFile.click());
 bindTap(songShareBtn, shareCurrentSong);
@@ -2747,6 +2790,21 @@ function commentToggledBlock(block) {
     if (uncomment) return line.replace(/^(\s*)\/\//, "$1");
     return line.replace(/^(\s*)/, "$1//");
   }).join("\n");
+}
+
+function toggleAllComments() {
+  const block = ed.value;
+  if (!block.trim()) {
+    setStatus("コメント対象がありません", playing ? "playing" : "ready");
+    return;
+  }
+  const newBlock = commentToggledBlock(block);
+  if (newBlock === block) return;
+  flushHistory();
+  ed.setRangeText(newBlock, 0, ed.value.length, "preserve");
+  afterEdit();
+  updateScrubber();
+  setStatus(blockWillUncomment(block) ? "全コメントを解除" : "全体をコメントアウト", playing ? "playing" : "ready");
 }
 
 function toggleLineComment() {
@@ -3243,6 +3301,7 @@ let gutterPointer = null;
 
 lineNums.addEventListener("pointerdown", e => {
   e.preventDefault();
+  e.stopPropagation();
   gutterPointer = {
     pointerId: e.pointerId,
     startX: e.clientX,
@@ -3255,6 +3314,7 @@ lineNums.addEventListener("pointerdown", e => {
 
 lineNums.addEventListener("pointermove", e => {
   if (!gutterPointer || e.pointerId !== gutterPointer.pointerId) return;
+  e.stopPropagation();
   const dx = e.clientX - gutterPointer.startX;
   const dy = e.clientY - gutterPointer.startY;
   if (!gutterPointer.moved && Math.hypot(dx, dy) > 8) gutterPointer.moved = true;
@@ -3268,13 +3328,24 @@ lineNums.addEventListener("pointermove", e => {
 lineNums.addEventListener("pointerup", e => {
   if (!gutterPointer || e.pointerId !== gutterPointer.pointerId) return;
   e.preventDefault();
+  e.stopPropagation();
   const wasTap = !gutterPointer.moved;
   gutterPointer = null;
   if (wasTap) toggleCommentForLine(lineIndexFromClientY(e.clientY));
 });
 
-lineNums.addEventListener("pointercancel", () => { gutterPointer = null; });
-lineNums.addEventListener("contextmenu", e => e.preventDefault());
+lineNums.addEventListener("pointercancel", e => {
+  if (gutterPointer && e.pointerId === gutterPointer.pointerId) e.stopPropagation();
+  gutterPointer = null;
+});
+lineNums.addEventListener("click", e => {
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
+lineNums.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  e.stopPropagation();
+});
 
 function activeLineIndex() {
   return (ed.value.slice(0, ed.selectionStart).match(/\n/g) || []).length;
@@ -4369,11 +4440,8 @@ function endSheetDrag(e) {
 sheetHead.addEventListener("pointerup", endSheetDrag);
 sheetHead.addEventListener("pointercancel", endSheetDrag);
 
-document.getElementById("clearBtn").addEventListener("click", () => {
-  ed.value = "";
-  afterEdit();
-  closeDrawer();
-});
+bindTap(document.getElementById("commentAllBtn"), toggleAllComments);
+bindTap(document.getElementById("clearBtn"), startNewSong);
 
 /* テーマ切替 */
 const themeBtns = [...document.querySelectorAll(".themeBtn")];
@@ -4422,7 +4490,7 @@ if (sharedSong) {
   if (store) { try { store.setItem(SAVE_KEY, ed.value); } catch (e) {} }
   history.replaceState(null, "", location.pathname + location.search);
 } else {
-  ed.value = (initial && initial.trim()) ? initial : PRESETS[4].code;
+  ed.value = initial !== null && initial !== undefined ? initial : PRESETS[4].code;
 }
 syncBpmFromCode();
 updateEditorGuides();
