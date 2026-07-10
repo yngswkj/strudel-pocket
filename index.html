@@ -2614,6 +2614,7 @@ async function shareCurrentSong() {
 function startNewSong() {
   if (ed.value.trim() && !confirm("エディタを空にして新規作成しますか？")) return;
   flushHistory();
+  const hadEditorFocus = document.activeElement === ed;
   hideOverwriteConfirm();
   setCurrentSong("");
   songTitleInput.value = "";
@@ -2622,7 +2623,7 @@ function startNewSong() {
   renderSnaps();
   hideSnapPreview();
   ed.value = "";
-  ed.selectionStart = ed.selectionEnd = 0;
+  if (hadEditorFocus) ed.selectionStart = ed.selectionEnd = 0;
   if (store) {
     try { store.setItem(SAVE_KEY, ""); } catch (e) {}
   }
@@ -2792,6 +2793,35 @@ function commentToggledBlock(block) {
   }).join("\n");
 }
 
+function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selectionMode = "preserve") {
+  const hadFocus = document.activeElement === ed;
+  const value = ed.value;
+  const safeStart = Math.max(0, Math.min(value.length, start));
+  const safeEnd = Math.max(safeStart, Math.min(value.length, end));
+  const prevStart = hadFocus ? ed.selectionStart : 0;
+  const prevEnd = hadFocus ? ed.selectionEnd : 0;
+  ed.value = value.slice(0, safeStart) + replacement + value.slice(safeEnd);
+  if (!hadFocus) return;
+  const insertedEnd = safeStart + replacement.length;
+  if (selectionMode === "select") {
+    ed.selectionStart = safeStart;
+    ed.selectionEnd = insertedEnd;
+    return;
+  }
+  if (selectionMode === "end") {
+    ed.selectionStart = ed.selectionEnd = insertedEnd;
+    return;
+  }
+  const delta = replacement.length - (safeEnd - safeStart);
+  const mapPos = pos => {
+    if (pos <= safeStart) return pos;
+    if (pos >= safeEnd) return pos + delta;
+    return insertedEnd;
+  };
+  ed.selectionStart = Math.max(0, Math.min(ed.value.length, mapPos(prevStart)));
+  ed.selectionEnd = Math.max(0, Math.min(ed.value.length, mapPos(prevEnd)));
+}
+
 function toggleAllComments() {
   const block = ed.value;
   if (!block.trim()) {
@@ -2801,7 +2831,7 @@ function toggleAllComments() {
   const newBlock = commentToggledBlock(block);
   if (newBlock === block) return;
   flushHistory();
-  ed.setRangeText(newBlock, 0, ed.value.length, "preserve");
+  replaceEditorRangeWithoutStealingFocus(0, ed.value.length, newBlock, "preserve");
   afterEdit();
   updateScrubber();
   setStatus(blockWillUncomment(block) ? "全コメントを解除" : "全体をコメントアウト", playing ? "playing" : "ready");
@@ -3261,7 +3291,7 @@ function toggleCommentForLine(index) {
   const newBlock = commentToggledBlock(block);
   if (newBlock === block) return false;
   // 行番号タップは単一行だけをミュートする。stack( や ) 行は構文エラーになり得るが、再タップで復帰できる。
-  ed.setRangeText(newBlock, start, end, "preserve");
+  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "preserve");
   afterEdit();
   updateScrubber();
   return true;
@@ -3722,7 +3752,7 @@ function applyScrubValue(v) {
   v = Math.max(0, v);
   const str = fmtNum(v, conf.dec);
   scrubbing = true;
-  ed.setRangeText(str, tok.start, tok.end, "select");
+  replaceEditorRangeWithoutStealingFocus(tok.start, tok.end, str, "select");
   scrubbing = false;
   tok.end = tok.start + str.length;
   tok.value = parseFloat(str);
