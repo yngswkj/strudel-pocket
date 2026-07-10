@@ -2793,23 +2793,42 @@ function commentToggledBlock(block) {
   }).join("\n");
 }
 
-function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selectionMode = "preserve") {
+function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selectionMode = "preserve", options = {}) {
   const hadFocus = document.activeElement === ed;
   const value = ed.value;
   const safeStart = Math.max(0, Math.min(value.length, start));
   const safeEnd = Math.max(safeStart, Math.min(value.length, end));
   const prevStart = hadFocus ? ed.selectionStart : 0;
   const prevEnd = hadFocus ? ed.selectionEnd : 0;
+  const keepScroll = !!options.keepScroll;
+  const prevScrollTop = keepScroll ? ed.scrollTop : 0;
+  const prevScrollLeft = keepScroll ? ed.scrollLeft : 0;
+  const restoreScroll = () => {
+    if (!keepScroll) return;
+    ed.scrollTop = prevScrollTop;
+    ed.scrollLeft = prevScrollLeft;
+    updateEditorGuides();
+  };
+  const restoreScrollNowAndNextFrame = () => {
+    if (!keepScroll) return;
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
+  };
   ed.value = value.slice(0, safeStart) + replacement + value.slice(safeEnd);
-  if (!hadFocus) return;
+  if (!hadFocus) {
+    restoreScroll();
+    return;
+  }
   const insertedEnd = safeStart + replacement.length;
   if (selectionMode === "select") {
     ed.selectionStart = safeStart;
     ed.selectionEnd = insertedEnd;
+    restoreScrollNowAndNextFrame();
     return;
   }
   if (selectionMode === "end") {
     ed.selectionStart = ed.selectionEnd = insertedEnd;
+    restoreScrollNowAndNextFrame();
     return;
   }
   const delta = replacement.length - (safeEnd - safeStart);
@@ -2820,6 +2839,7 @@ function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selecti
   };
   ed.selectionStart = Math.max(0, Math.min(ed.value.length, mapPos(prevStart)));
   ed.selectionEnd = Math.max(0, Math.min(ed.value.length, mapPos(prevEnd)));
+  restoreScrollNowAndNextFrame();
 }
 
 function toggleAllComments() {
@@ -3291,7 +3311,7 @@ function toggleCommentForLine(index) {
   const newBlock = commentToggledBlock(block);
   if (newBlock === block) return false;
   // 行番号タップは単一行だけをミュートする。stack( や ) 行は構文エラーになり得るが、再タップで復帰できる。
-  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "preserve");
+  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "preserve", { keepScroll: true });
   afterEdit();
   updateScrubber();
   return true;
