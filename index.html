@@ -2801,6 +2801,7 @@ function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selecti
   const prevStart = hadFocus ? ed.selectionStart : 0;
   const prevEnd = hadFocus ? ed.selectionEnd : 0;
   const keepScroll = !!options.keepScroll;
+  const updateSelection = hadFocus || !!options.updateSelectionWhenBlurred;
   const prevScrollTop = keepScroll ? ed.scrollTop : 0;
   const prevScrollLeft = keepScroll ? ed.scrollLeft : 0;
   const restoreScroll = () => {
@@ -2815,7 +2816,7 @@ function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selecti
     requestAnimationFrame(restoreScroll);
   };
   ed.value = value.slice(0, safeStart) + replacement + value.slice(safeEnd);
-  if (!hadFocus) {
+  if (!updateSelection) {
     restoreScroll();
     return;
   }
@@ -3311,7 +3312,10 @@ function toggleCommentForLine(index) {
   const newBlock = commentToggledBlock(block);
   if (newBlock === block) return false;
   // 行番号タップは単一行だけをミュートする。編集位置も対象行へ移し、古いキャレットへのスクロールを防ぐ。
-  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "end", { keepScroll: true });
+  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "end", {
+    keepScroll: true,
+    updateSelectionWhenBlurred: true
+  });
   afterEdit();
   updateScrubber();
   return true;
@@ -3352,6 +3356,9 @@ let gutterPointer = null;
 lineNums.addEventListener("pointerdown", e => {
   e.preventDefault();
   e.stopPropagation();
+  const touchLike = e.pointerType === "touch" || e.pointerType === "pen";
+  // OS側でキーボードを閉じてもtextareaのfocusは残るため、演奏中の行ミュート操作では明示的に外す。
+  if (touchLike && !keyboardOpen && document.activeElement === ed) ed.blur();
   gutterPointer = {
     pointerId: e.pointerId,
     startX: e.clientX,
