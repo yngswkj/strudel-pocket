@@ -2203,11 +2203,11 @@ function loadSnap(id) {
   const snap = snaps[id];
   if (!snap || !snap.code) { setStatus(id + "は空", playing ? "playing" : "ready"); return; }
   hideSnapPreview();
-  ed.value = snap.code;
+  flushHistory();
+  replaceEditorValue(snap.code, { selectionStart: 0, selectionEnd: 0, scrollTop: 0, scrollLeft: 0 });
   afterEdit();
   updateScrubber();
   closeDrawer();
-  ed.focus();
   setStatus(id + "を読み込み", playing ? "playing" : "ready");
 }
 document.addEventListener("pointerdown", e => {
@@ -2524,7 +2524,8 @@ async function loadSong(song) {
   hideOverwriteConfirm();
   setCurrentSong(song.id);
   songTitleInput.value = song.title || "";
-  ed.value = song.code || "";
+  flushHistory();
+  replaceEditorValue(song.code || "", { selectionStart: 0, selectionEnd: 0, scrollTop: 0, scrollLeft: 0 });
   snaps = song.snapshots || {};
   persistSnaps();
   renderSnaps();
@@ -2532,7 +2533,6 @@ async function loadSong(song) {
   afterEdit();
   updateScrubber();
   closeDrawer();
-  ed.focus();
   setStatus("曲を読み込み", playing ? "playing" : "ready");
 }
 
@@ -2672,12 +2672,19 @@ PRESETS.forEach(p => {
   c.querySelector("p").textContent = p.desc;
   c.querySelector("pre").textContent = p.code;
   c.querySelector(".load").addEventListener("click", () => {
-    ed.value = p.code;
+    flushHistory();
+    replaceEditorValue(p.code, { selectionStart: 0, selectionEnd: 0, scrollTop: 0, scrollLeft: 0 });
     afterEdit();
     closeDrawer();
   });
   c.querySelector(".append").addEventListener("click", () => {
-    ed.value = ed.value.replace(/\s*$/, "") + (ed.value.trim() ? "\n\n" : "") + p.code;
+    flushHistory();
+    const scrollTop = ed.scrollTop;
+    const scrollLeft = ed.scrollLeft;
+    const selectionStart = ed.selectionStart;
+    const selectionEnd = ed.selectionEnd;
+    const nextValue = ed.value.replace(/\s*$/, "") + (ed.value.trim() ? "\n\n" : "") + p.code;
+    replaceEditorValue(nextValue, { selectionStart, selectionEnd, scrollTop, scrollLeft });
     afterEdit();
     closeDrawer();
   });
@@ -2700,8 +2707,13 @@ function bindTap(btn, fn) {
     down = null;
     if (moved) return; // ドラッグ(スクロール)はタップ扱いしない
     e.preventDefault();
-    fn();
+    fn(e);
   });
+}
+
+function blurEditorForHiddenKeyboard(e) {
+  const touchLike = e && (e.pointerType === "touch" || e.pointerType === "pen");
+  if (touchLike && !keyboardOpen && document.activeElement === ed) ed.blur();
 }
 
 function bindInsert(btn, text, caret) {
@@ -2793,6 +2805,38 @@ function commentToggledBlock(block) {
   }).join("\n");
 }
 
+function replaceEditorValue(nextValue, options = {}) {
+  const hasSelection = Number.isFinite(options.selectionStart);
+  const selectionStart = hasSelection
+    ? Math.max(0, Math.min(nextValue.length, options.selectionStart))
+    : 0;
+  const selectionEnd = hasSelection
+    ? Math.max(selectionStart, Math.min(nextValue.length,
+        Number.isFinite(options.selectionEnd) ? options.selectionEnd : selectionStart))
+    : 0;
+  const hasScrollPosition = Number.isFinite(options.scrollTop) || Number.isFinite(options.scrollLeft);
+  const scrollTop = Number.isFinite(options.scrollTop) ? options.scrollTop : ed.scrollTop;
+  const scrollLeft = Number.isFinite(options.scrollLeft) ? options.scrollLeft : ed.scrollLeft;
+  const restoreScroll = () => {
+    if (!hasScrollPosition) return;
+    ed.scrollTop = scrollTop;
+    ed.scrollLeft = scrollLeft;
+    updateEditorGuides();
+  };
+
+  ed.value = nextValue;
+  if (hasSelection) {
+    ed.selectionStart = selectionStart;
+    ed.selectionEnd = selectionEnd;
+  }
+  if (!hasScrollPosition) return;
+  restoreScroll();
+  requestAnimationFrame(() => {
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
+  });
+}
+
 function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selectionMode = "preserve", options = {}) {
   const hadFocus = document.activeElement === ed;
   const value = ed.value;
@@ -2802,45 +2846,36 @@ function replaceEditorRangeWithoutStealingFocus(start, end, replacement, selecti
   const prevEnd = hadFocus ? ed.selectionEnd : 0;
   const keepScroll = !!options.keepScroll;
   const updateSelection = hadFocus || !!options.updateSelectionWhenBlurred;
-  const prevScrollTop = keepScroll ? ed.scrollTop : 0;
-  const prevScrollLeft = keepScroll ? ed.scrollLeft : 0;
-  const restoreScroll = () => {
-    if (!keepScroll) return;
-    ed.scrollTop = prevScrollTop;
-    ed.scrollLeft = prevScrollLeft;
-    updateEditorGuides();
-  };
-  const restoreScrollNowAndNextFrame = () => {
-    if (!keepScroll) return;
-    restoreScroll();
-    requestAnimationFrame(restoreScroll);
-  };
-  ed.value = value.slice(0, safeStart) + replacement + value.slice(safeEnd);
+  const prevScrollTop = ed.scrollTop;
+  const prevScrollLeft = ed.scrollLeft;
+  const nextValue = value.slice(0, safeStart) + replacement + value.slice(safeEnd);
   if (!updateSelection) {
-    restoreScroll();
+    replaceEditorValue(nextValue, keepScroll ? { scrollTop: prevScrollTop, scrollLeft: prevScrollLeft } : {});
     return;
   }
   const insertedEnd = safeStart + replacement.length;
+  let nextStart;
+  let nextEnd;
   if (selectionMode === "select") {
-    ed.selectionStart = safeStart;
-    ed.selectionEnd = insertedEnd;
-    restoreScrollNowAndNextFrame();
-    return;
+    nextStart = safeStart;
+    nextEnd = insertedEnd;
+  } else if (selectionMode === "end") {
+    nextStart = nextEnd = insertedEnd;
+  } else {
+    const delta = replacement.length - (safeEnd - safeStart);
+    const mapPos = pos => {
+      if (pos <= safeStart) return pos;
+      if (pos >= safeEnd) return pos + delta;
+      return insertedEnd;
+    };
+    nextStart = mapPos(prevStart);
+    nextEnd = mapPos(prevEnd);
   }
-  if (selectionMode === "end") {
-    ed.selectionStart = ed.selectionEnd = insertedEnd;
-    restoreScrollNowAndNextFrame();
-    return;
-  }
-  const delta = replacement.length - (safeEnd - safeStart);
-  const mapPos = pos => {
-    if (pos <= safeStart) return pos;
-    if (pos >= safeEnd) return pos + delta;
-    return insertedEnd;
-  };
-  ed.selectionStart = Math.max(0, Math.min(ed.value.length, mapPos(prevStart)));
-  ed.selectionEnd = Math.max(0, Math.min(ed.value.length, mapPos(prevEnd)));
-  restoreScrollNowAndNextFrame();
+  replaceEditorValue(nextValue, {
+    selectionStart: nextStart,
+    selectionEnd: nextEnd,
+    ...(keepScroll ? { scrollTop: prevScrollTop, scrollLeft: prevScrollLeft } : {})
+  });
 }
 
 function toggleAllComments() {
@@ -2852,7 +2887,7 @@ function toggleAllComments() {
   const newBlock = commentToggledBlock(block);
   if (newBlock === block) return;
   flushHistory();
-  replaceEditorRangeWithoutStealingFocus(0, ed.value.length, newBlock, "preserve");
+  replaceEditorRangeWithoutStealingFocus(0, ed.value.length, newBlock, "preserve", { keepScroll: true });
   afterEdit();
   updateScrubber();
   setStatus(blockWillUncomment(block) ? "全コメントを解除" : "全体をコメントアウト", playing ? "playing" : "ready");
@@ -3356,9 +3391,8 @@ let gutterPointer = null;
 lineNums.addEventListener("pointerdown", e => {
   e.preventDefault();
   e.stopPropagation();
-  const touchLike = e.pointerType === "touch" || e.pointerType === "pen";
   // OS側でキーボードを閉じてもtextareaのfocusは残るため、演奏中の行ミュート操作では明示的に外す。
-  if (touchLike && !keyboardOpen && document.activeElement === ed) ed.blur();
+  blurEditorForHiddenKeyboard(e);
   gutterPointer = {
     pointerId: e.pointerId,
     startX: e.clientX,
@@ -3647,11 +3681,22 @@ const redoBtn = document.getElementById("redoBtn");
 const hist = [];
 let histIdx = -1, histTimer = null, applyingHist = false;
 
+function captureHistoryEntry() {
+  return {
+    value: ed.value,
+    selectionStart: ed.selectionStart,
+    selectionEnd: ed.selectionEnd
+  };
+}
+
 function flushHistory() {
   clearTimeout(histTimer);
-  if (hist[histIdx] === ed.value) return;
+  if (hist[histIdx] && hist[histIdx].value === ed.value) {
+    hist[histIdx] = captureHistoryEntry();
+    return;
+  }
   hist.splice(histIdx + 1);           // redo側を捨てる
-  hist.push(ed.value);
+  hist.push(captureHistoryEntry());
   if (hist.length > 100) hist.shift(); // 上限
   histIdx = hist.length - 1;
   updateHistBtns();
@@ -3665,9 +3710,17 @@ function applyHistory(d) {
   flushHistory(); // 保留中の変更を先に確定してから移動
   const i = histIdx + d;
   if (i < 0 || i >= hist.length) return;
+  const entry = hist[i];
+  const scrollTop = ed.scrollTop;
+  const scrollLeft = ed.scrollLeft;
   histIdx = i;
   applyingHist = true;
-  ed.value = hist[i];
+  replaceEditorValue(entry.value, {
+    selectionStart: entry.selectionStart,
+    selectionEnd: entry.selectionEnd,
+    scrollTop,
+    scrollLeft
+  });
   completionsPausedUntilInput = true;
   suppressCompletionUpdate = true;
   afterEdit();
@@ -3699,8 +3752,8 @@ document.getElementById("caretR").addEventListener("pointerdown", e => {
   e.preventDefault(); moveCaret(1);
 });
 // ヘッダーの#hscroll内にあるためスワイプ(A−/A＋を出す操作)と区別する
-bindTap(undoBtn, () => applyHistory(-1));
-bindTap(redoBtn, () => applyHistory(1));
+bindTap(undoBtn, e => { blurEditorForHiddenKeyboard(e); applyHistory(-1); });
+bindTap(redoBtn, e => { blurEditorForHiddenKeyboard(e); applyHistory(1); });
 bindTap(updateBtn, () => runEval());
 
 // PCでは縦ホイールでも#hscrollを横に送れるようにする
@@ -4497,7 +4550,10 @@ function endSheetDrag(e) {
 sheetHead.addEventListener("pointerup", endSheetDrag);
 sheetHead.addEventListener("pointercancel", endSheetDrag);
 
-bindTap(document.getElementById("commentAllBtn"), toggleAllComments);
+bindTap(document.getElementById("commentAllBtn"), e => {
+  blurEditorForHiddenKeyboard(e);
+  toggleAllComments();
+});
 bindTap(document.getElementById("clearBtn"), startNewSong);
 
 /* テーマ切替 */
@@ -4551,7 +4607,7 @@ if (sharedSong) {
 }
 syncBpmFromCode();
 updateEditorGuides();
-hist.push(ed.value); histIdx = 0; updateHistBtns(); // 履歴の起点
+hist.push(captureHistoryEntry()); histIdx = 0; updateHistBtns(); // 履歴の起点
 </script>
 </body>
 </html>
