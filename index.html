@@ -3310,8 +3310,8 @@ function toggleCommentForLine(index) {
   const block = ed.value.slice(start, end);
   const newBlock = commentToggledBlock(block);
   if (newBlock === block) return false;
-  // 行番号タップは単一行だけをミュートする。stack( や ) 行は構文エラーになり得るが、再タップで復帰できる。
-  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "preserve", { keepScroll: true });
+  // 行番号タップは単一行だけをミュートする。編集位置も対象行へ移し、古いキャレットへのスクロールを防ぐ。
+  replaceEditorRangeWithoutStealingFocus(start, end, newBlock, "end", { keepScroll: true });
   afterEdit();
   updateScrubber();
   return true;
